@@ -50,9 +50,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-
 # ==========================================
-# 2. 동적 데이터 생성 (AI 요약용 원문 텍스트 추가)
+# 2. 동적 데이터 생성
 # ==========================================
 @st.cache_data
 def load_nhtsa_data():
@@ -69,7 +68,6 @@ def load_nhtsa_data():
     speeds = np.random.choice(['60-70 mph', '70-80 mph', '50-60 mph', 'Under 50 mph', 'Over 80 mph'], n_records)
     crashes = np.random.choice([0, 1], n_records, p=[0.97, 0.03])
     
-    # 동적 신고 텍스트 생성
     texts = [f"{state}에서 {speed} 속도로 주행 중 {symptom} 현상이 발생했습니다. 대상 차량은 {vehicle}({model}, 규격: {size})이며, 타이어 점검 및 교체가 필요했습니다." for state, speed, symptom, vehicle, model, size in zip(states, speeds, symptoms, vehicles, models, sizes)]
     
     df = pd.DataFrame({
@@ -88,7 +86,6 @@ def load_nhtsa_data():
     return df
 
 df_base = load_nhtsa_data()
-
 
 # ==========================================
 # 3. 사이드바 (탐색 필터 + 일괄 적용 폼)
@@ -112,23 +109,27 @@ with st.sidebar:
         st.markdown("---")
         submit_btn = st.form_submit_button("필터 적용하기", type="primary", use_container_width=True)
 
-
 # ==========================================
 # 4. 데이터 필터링 로직 적용
 # ==========================================
+# 메인 대시보드용 필터 (선택한 브랜드 및 기간 반영)
 mask = (df_base['Date'].dt.date >= start_date) & (df_base['Date'].dt.date <= end_date)
 if selected_brand != "전체":
     mask &= (df_base['Brand'] == selected_brand)
 
 df_filtered = df_base[mask]
 
+# 신호 감지 및 AI 요약용 전용 필터 (기간은 반영하되, 브랜드는 무조건 NEXEN으로 고정)
+df_nexen = df_base[(df_base['Date'].dt.date >= start_date) & 
+                   (df_base['Date'].dt.date <= end_date) & 
+                   (df_base['Brand'] == 'NEXEN')]
+
 if df_filtered.empty:
     st.warning("선택한 조건에 해당하는 데이터가 없습니다. 필터를 변경해주세요.")
     st.stop()
 
-
 # ==========================================
-# 5. 동적 수치 계산 (KPI, 신호 감지 등)
+# 5. 동적 수치 계산
 # ==========================================
 total_complaints = len(df_filtered)
 recent_180_date = end_date - timedelta(days=180)
@@ -141,17 +142,17 @@ top_symptom_cnt = df_filtered['Symptom'].value_counts().max()
 top_vehicle = df_filtered['Vehicle'].value_counts().idxmax()
 top_vehicle_cnt = df_filtered['Vehicle'].value_counts().max()
 
-# --- 동적 신호 감지(Signal) 로직 ---
+# --- NEXEN 전용 신호 감지(Signal) 로직 ---
 p2_start = end_date - timedelta(days=180)
 p1_start = p2_start - timedelta(days=180)
 
-df_p2 = df_filtered[(df_filtered['Date'].dt.date >= p2_start) & (df_filtered['Date'].dt.date <= end_date)]
-df_p1 = df_filtered[(df_filtered['Date'].dt.date >= p1_start) & (df_filtered['Date'].dt.date < p2_start)]
+df_nexen_p2 = df_base[(df_base['Date'].dt.date >= p2_start) & (df_base['Date'].dt.date <= end_date) & (df_base['Brand'] == 'NEXEN')]
+df_nexen_p1 = df_base[(df_base['Date'].dt.date >= p1_start) & (df_base['Date'].dt.date < p2_start) & (df_base['Brand'] == 'NEXEN')]
 
-if not df_p2.empty:
-    sig_symptom = df_p2['Symptom'].value_counts().idxmax()
-    sig_p2_count = df_p2['Symptom'].value_counts().max()
-    sig_p1_count = len(df_p1[df_p1['Symptom'] == sig_symptom]) if not df_p1.empty else 0
+if not df_nexen_p2.empty:
+    sig_symptom = df_nexen_p2['Symptom'].value_counts().idxmax()
+    sig_p2_count = df_nexen_p2['Symptom'].value_counts().max()
+    sig_p1_count = len(df_nexen_p1[df_nexen_p1['Symptom'] == sig_symptom]) if not df_nexen_p1.empty else 0
     
     if sig_p2_count > sig_p1_count:
         sig_badge = "증가 ↗"
@@ -162,13 +163,12 @@ if not df_p2.empty:
         sig_color = "#2E86C1"
         sig_border = "#85C1E9"
 else:
-    sig_symptom = "특이 신호 없음"
+    sig_symptom = "NEXEN 특이 신호 없음"
     sig_p2_count = 0
     sig_p1_count = 0
     sig_badge = "-"
     sig_color = "#7F8C8D"
     sig_border = "#BDC3C7"
-
 
 # ==========================================
 # 6. 화면 렌더링: 메인 헤더 & KPI
@@ -194,7 +194,6 @@ with col_kpi3:
     st.markdown(f'<div class="kpi-card"><div class="kpi-title">사고·피해 동반 신고 ⚠</div><div class="kpi-value">{crash_count:,}</div><div class="kpi-desc">사고 및 부상 연관 데이터</div></div>', unsafe_allow_html=True)
 with col_kpi4:
     st.markdown(f'<div class="kpi-card"><div class="kpi-title">등록 차종 🚗</div><div class="kpi-value">{unique_vehicles:,}</div><div class="kpi-desc">영향을 받은 고유 차종 수</div></div>', unsafe_allow_html=True)
-
 
 # ==========================================
 # 7. 화면 렌더링: 트렌드 차트 & QA Brief
@@ -226,39 +225,38 @@ with col_mid2:
         </div>
     ''', unsafe_allow_html=True)
 
-
 # ==========================================
-# 8. 화면 렌더링: 동적 신호 감지 & AI 원문 요약
+# 8. 화면 렌더링: NEXEN 전용 신호 감지 & AI 원문 요약
 # ==========================================
-st.markdown('<div class="section-header">FROM PATTERNS TO QUESTIONS</div>', unsafe_allow_html=True)
-st.markdown('<div class="section-title">어떤 신호를 먼저 살펴볼까요?</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">FROM PATTERNS TO QUESTIONS (NEXEN ONLY)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">NEXEN: 어떤 신호를 먼저 살펴볼까요?</div>', unsafe_allow_html=True)
 
 st.markdown(f'''
     <div class="signal-box">
         <div class="signal-icon">📈</div>
         <div>
-            <div style="font-weight: bold; color: #9C640C; font-size: 15px;">{sig_symptom} - 주의 모니터링 <span style="border: 1px solid {sig_border}; color: {sig_color}; font-size: 11px; padding: 2px 8px; border-radius: 12px; margin-left: 10px;">{sig_badge}</span></div>
+            <div style="font-weight: bold; color: #9C640C; font-size: 15px;">[NEXEN] {sig_symptom} - 주의 모니터링 <span style="border: 1px solid {sig_border}; color: {sig_color}; font-size: 11px; padding: 2px 8px; border-radius: 12px; margin-left: 10px;">{sig_badge}</span></div>
             <div style="color: #A6ACAF; font-size: 12px; margin-top: 5px;">최근 180일 {sig_p2_count}건 / 이전 180일 {sig_p1_count}건</div>
         </div>
     </div>
 ''', unsafe_allow_html=True)
 
-st.markdown('<div class="section-header" style="margin-top:20px;">AI COMPLAINT ANALYSIS</div>', unsafe_allow_html=True)
-st.markdown('<div class="section-title">주요 컴플레인 AI 요약 (최근 발생 사례)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header" style="margin-top:20px;">AI COMPLAINT ANALYSIS (NEXEN ONLY)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">NEXEN: 주요 컴플레인 AI 요약 (조회 기간 내 최근 사례)</div>', unsafe_allow_html=True)
 
-# 최근 발생한 2개의 불만사항 동적 생성
-recent_complaints = df_filtered.sort_values(by='Date', ascending=False).head(2)
-
-ai_html = ""
-for idx, (_, row) in enumerate(recent_complaints.iterrows()):
-    ai_html += f"""
-    <div class="ai-summary-card">
-        <div class="ai-summary-title">사례 {idx+1}. {row['State']} - {row['Symptom']} 현상 ({row['Date'].strftime('%Y-%m-%d')})</div>
-        <div class="ai-summary-text">{row['Complaint_Text']}</div>
-    </div>
-    """
-st.markdown(ai_html, unsafe_allow_html=True)
-
+if not df_nexen.empty:
+    recent_complaints = df_nexen.sort_values(by='Date', ascending=False).head(2)
+    ai_html = ""
+    for idx, (_, row) in enumerate(recent_complaints.iterrows()):
+        ai_html += f"""
+        <div class="ai-summary-card">
+            <div class="ai-summary-title">사례 {idx+1}. [NEXEN] {row['State']} - {row['Symptom']} 현상 ({row['Date'].strftime('%Y-%m-%d')})</div>
+            <div class="ai-summary-text">{row['Complaint_Text']}</div>
+        </div>
+        """
+    st.markdown(ai_html, unsafe_allow_html=True)
+else:
+    st.info("해당 조회 기간에 NEXEN 브랜드의 신고 내역이 없습니다.")
 
 # ==========================================
 # 9. 화면 렌더링: 다차원 탐색 (가로 바 차트)
