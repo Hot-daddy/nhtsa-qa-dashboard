@@ -45,7 +45,6 @@ st.markdown("""
     .ai-summary-title { font-weight: 700; color: #1A362D; margin-bottom: 5px; font-size: 14px; }
     .ai-summary-text { font-size: 13px; color: #5D6D7E; line-height: 1.5; }
     
-    /* 사고 피해 보고서 스타일 */
     .crash-card { background-color: #FDEDEC; border-left: 4px solid #E74C3C; padding: 20px; margin-bottom: 15px; border-radius: 4px; border-top: 1px solid #FADBD8; border-right: 1px solid #FADBD8; border-bottom: 1px solid #FADBD8; }
     .crash-title { font-weight: 800; color: #922B21; font-size: 15px; margin-bottom: 10px; }
     .crash-meta { font-size: 12px; color: #922B21; margin-right: 10px; background-color: #F5B7B1; padding: 4px 8px; border-radius: 4px; font-weight: 600; display: inline-block; margin-bottom: 5px;}
@@ -56,13 +55,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 동적 데이터 생성
+# 2. 동적 데이터 생성 (2013년으로 생성 범위 확장)
 # ==========================================
 @st.cache_data
 def load_nhtsa_data():
     np.random.seed(42)
     n_records = 3000
-    dates = pd.to_datetime(np.random.choice(pd.date_range('2020-01-01', '2026-09-08'), n_records))
+    # 2013년부터 데이터 생성하도록 수정
+    dates = pd.to_datetime(np.random.choice(pd.date_range('2013-01-01', '2026-09-08'), n_records))
     brands = np.random.choice(['NEXEN', 'HANKOOK', 'KUMHO', 'MICHELIN', 'OTHER'], n_records, p=[0.15, 0.25, 0.2, 0.3, 0.1])
     symptoms = np.random.choice(['트레드 분리', '진동-밸런스', '파열 Blowout', '변형-부풀음', '균열 Cracking'], n_records)
     vehicles = np.random.choice(['RAM 3500', 'Hyundai Sonata', 'JEEP WRANGLER', 'Ford F-150', 'Kia K5'], n_records)
@@ -92,18 +92,18 @@ def load_nhtsa_data():
 df_base = load_nhtsa_data()
 
 # ==========================================
-# 3. Session State 초기화 및 콜백 함수 정의
+# 3. Session State 초기화 및 콜백 함수 정의 (초기값을 2013년으로 변경)
 # ==========================================
 if 'filter_brand' not in st.session_state:
     st.session_state.filter_brand = "NEXEN"
 if 'filter_start_date' not in st.session_state:
-    st.session_state.filter_start_date = date(2020, 1, 1)
+    st.session_state.filter_start_date = date(2013, 1, 1) # 기본 시작일을 2013년으로 설정
 if 'filter_end_date' not in st.session_state:
     st.session_state.filter_end_date = date(2026, 9, 8)
 
 def reset_filters():
     st.session_state.filter_brand = "NEXEN"
-    st.session_state.filter_start_date = date(2020, 1, 1)
+    st.session_state.filter_start_date = date(2013, 1, 1)
     st.session_state.filter_end_date = date(2026, 9, 8)
 
 def set_nexen_focus():
@@ -146,7 +146,7 @@ with st.sidebar:
             st.session_state.filter_end_date = sel_end
 
 # ==========================================
-# 5. 데이터 필터링 적용 
+# 5. 데이터 필터링 적용
 # ==========================================
 mask = (df_base['Date'].dt.date >= st.session_state.filter_start_date) & (df_base['Date'].dt.date <= st.session_state.filter_end_date)
 if st.session_state.filter_brand != "전체":
@@ -237,10 +237,22 @@ with col_mid1:
     st.markdown('<div class="section-header">COMPLAINT TREND</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-title">신고 건수 추이 (연도별)</div>', unsafe_allow_html=True)
     
-    trend_data = df_filtered.groupby('Year').size().reset_index(name='Count')
+    # 정렬 추가: 과거 연도부터 차례대로 표시되도록 sort_values() 적용
+    trend_data = df_filtered.groupby('Year').size().reset_index(name='Count').sort_values(by='Year')
     fig_trend = px.bar(trend_data, x='Year', y='Count', text='Count')
     fig_trend.update_traces(marker_color='#719A7E', width=0.4, textposition='outside', textfont=dict(color='gray'))
-    fig_trend.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', height=320, margin=dict(l=0, r=0, t=20, b=0), xaxis_title=None, yaxis_title=None, yaxis=dict(showgrid=True, gridcolor='#F2F3F4'), xaxis=dict(showgrid=False))
+    
+    # x축을 카테고리형으로 강제하여 모든 연도가 순서대로 빠짐없이 나오도록 설정
+    fig_trend.update_layout(
+        plot_bgcolor='rgba(0,0,0,0)', 
+        paper_bgcolor='rgba(0,0,0,0)', 
+        height=320, 
+        margin=dict(l=0, r=0, t=20, b=0), 
+        xaxis_title=None, 
+        yaxis_title=None, 
+        yaxis=dict(showgrid=True, gridcolor='#F2F3F4'), 
+        xaxis=dict(showgrid=False, type='category')
+    )
     st.plotly_chart(fig_trend, use_container_width=True)
 
 with col_mid2:
@@ -327,14 +339,12 @@ with col_c3:
     st.markdown('<div class="section-header">SPEED EXPLORER</div><div class="section-title">주행 속도</div>', unsafe_allow_html=True)
     st.plotly_chart(draw_horizontal_bar(df_filtered['Speed']), use_container_width=True)
 
-
 # ==========================================
 # 11. 화면 렌더링: 사고·피해 동반 신고 상세 보고서
 # ==========================================
 st.markdown('<div class="section-header" style="margin-top: 40px;">CRASH & DAMAGE REPORT</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">🚨 사고·피해 동반 신고 상세 보고서</div>', unsafe_allow_html=True)
 
-# 필터링된 데이터에서 사고(Crash == 1) 건수만 추출 후 최신순 정렬
 crash_df = df_filtered[df_filtered['Crash'] == 1].sort_values(by='Date', ascending=False)
 
 if crash_df.empty:
@@ -342,7 +352,6 @@ if crash_df.empty:
 else:
     st.markdown(f"<div style='font-size:14px; color:#5D6D7E; margin-bottom:15px;'>총 <b>{len(crash_df)}</b>건의 사고/피해 동반 신고가 조회되었습니다. (최근 발생순)</div>", unsafe_allow_html=True)
     
-    # 각 사고 건별로 카드 형태의 항목별 보고서 출력
     for idx, row in crash_df.iterrows():
         st.markdown(f'''
         <div class="crash-card">
