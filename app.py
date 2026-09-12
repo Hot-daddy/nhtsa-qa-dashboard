@@ -20,7 +20,7 @@ def load_data():
     # [즉시 실행을 위한 Mock 데이터 생성]
     np.random.seed(42)
     n_records = 1000
-    dates = [datetime.today() - timedelta(days=x) for x in np.random.randint(0, 365, n_records)]
+    dates = [datetime.today() - timedelta(days=int(x)) for x in np.random.randint(0, 365, n_records)]
     mfrs = np.random.choice(['NEXEN TIRE', 'MICHELIN', 'GOODYEAR', 'HANKOOK', 'KUMHO', 'CONTINENTAL'], n_records, p=[0.15, 0.25, 0.2, 0.1, 0.1, 0.2])
     brands = [mfr.split()[0] for mfr in mfrs]
     makes_models = np.random.choice(['HYUNDAI/SONATA', 'TOYOTA/CAMRY', 'FORD/F-150', 'HONDA/ACCORD', 'KIA/K5'], n_records)
