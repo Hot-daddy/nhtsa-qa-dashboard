@@ -40,16 +40,22 @@ st.markdown("""
     .signal-box { background-color: #FDFAF2; border: 1px solid #F6DDCC; padding: 18px; border-radius: 8px; display: flex; align-items: center; gap: 15px; margin-bottom: 10px; }
     .signal-icon { background-color: #FDEBD0; padding: 10px; border-radius: 8px; color: #D68910; }
     
-    .ai-summary-card { background-color: #FFFFFF; border-left: 4px solid #45B39D; padding: 15px 20px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #EAECEE; border-left: 4px solid #45B39D; }
+    .ai-summary-card { background-color: #FFFFFF; padding: 15px 20px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #EAECEE; border-left: 4px solid #45B39D; }
     .ai-summary-title { font-weight: 700; color: #1A362D; margin-bottom: 5px; font-size: 14px; }
     .ai-summary-text { font-size: 13px; color: #5D6D7E; line-height: 1.5; }
     
-    .crash-card { background-color: #FDEDEC; border-left: 4px solid #E74C3C; padding: 18px; margin-bottom: 12px; border-radius: 4px; border: 1px solid #FADBD8; border-left: 4px solid #E74C3C; }
+    .pl-card { background-color: #FDEDEC; border: 1px solid #FADBD8; padding: 20px; border-radius: 8px; text-align: center; }
+    .pl-title { color: #922B21; font-size: 13px; font-weight: bold; margin-bottom: 10px; }
+    .pl-value { color: #C0392B; font-size: 32px; font-weight: 800; }
+    
+    .crash-card { background-color: #FDEDEC; padding: 18px; margin-bottom: 12px; border-radius: 4px; border: 1px solid #FADBD8; border-left: 4px solid #E74C3C; }
     .crash-title { font-weight: 800; color: #922B21; font-size: 14px; margin-bottom: 8px; }
     .crash-meta { font-size: 11px; color: #922B21; margin-right: 8px; background-color: #F5B7B1; padding: 3px 6px; border-radius: 4px; font-weight: 600; display: inline-block; margin-bottom: 4px;}
     .crash-text { font-size: 13px; color: #641E16; line-height: 1.5; margin-top: 8px; }
     
     .disabled-card { background-color: #EBEDEF; border: 1px dashed #BDC3C7; padding: 30px; text-align: center; border-radius: 8px; color: #7F8C8D; margin-top: 15px; }
+    
+    div[data-testid="stButton"] button { padding: 4px 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -85,14 +91,14 @@ def load_nhtsa_data():
     sizes = np.random.choice(['225/55R17', '235/45R18', '245/40R19', '215/55R17', '275/40R20'], n_records)
     states = np.random.choice(['CA', 'TX', 'FL', 'NY', 'PA', 'OH', 'GA', 'NC'], n_records)
     speeds = np.random.choice(['60-70 mph', '70-80 mph', '50-60 mph', 'Under 50 mph', 'Over 80 mph'], n_records)
-    crashes = np.random.choice([0, 1], n_records, p=[0.96, 0.04])
+    crashes = np.random.choice([0, 1], n_records, p=[0.94, 0.06]) # 사고 발생률 6%로 소폭 상향 조정 (시각화 목적)
     
     texts = [f"주행 중 {s} 증상으로 차량 통제 불능 발생. (차종: {v}, 타이어: {b} {m}, 규격: {sz}, 발생지역: {stt})" 
              for s, v, b, m, sz, stt in zip(symptoms, vehicles, brands, models, sizes, states)]
     
     df = pd.DataFrame({
         'Date': dates,
-        'Year': dates.year.astype(str),
+        'Year': dates.year,
         'Brand': brands,
         'Symptom': symptoms,
         'Vehicle_Make': veh_makes,
@@ -132,7 +138,7 @@ def set_all_brands():
     st.session_state.filter_brands = list(df_base['Brand'].unique())
 
 # ==========================================
-# 4. 사이드바 구성 (복수 선택 및 NHTSA 공통 필터)
+# 4. 사이드바 구성 
 # ==========================================
 with st.sidebar:
     col_hdr1, col_hdr2 = st.columns([3, 1])
@@ -145,28 +151,18 @@ with st.sidebar:
     col_btn2.button("전체 브랜드", on_click=set_all_brands, use_container_width=True)
     
     with st.form("filter_form"):
-        # 1. 브랜드 선택 (복수 선택 가능)
         all_brand_options = list(df_base['Brand'].unique())
         selected_brands = st.multiselect("타이어 브랜드 (BRAND)", options=all_brand_options, default=st.session_state.filter_brands)
-        
-        # 2. 타이어 모델 & 규격 (복수 선택 가능)
         selected_models = st.multiselect("타이어 모델 (MODEL)", options=sorted(list(df_base['Model'].unique())))
         selected_sizes = st.multiselect("타이어 규격 (SIZE)", options=sorted(list(df_base['Size'].unique())))
-        
-        # 3. 차종 정보 (복수 선택 가능)
         selected_makes = st.multiselect("차량 제조사 (MAKE)", options=sorted(list(df_base['Vehicle_Make'].unique())))
         selected_vehicles = st.multiselect("차종 (VEHICLE)", options=sorted(list(df_base['Vehicle'].unique())))
-        
-        # 4. 결함 증상 & 발생 지역 (복수 선택 가능)
         selected_symptoms = st.multiselect("결함 증상 (SYMPTOM)", options=sorted(list(df_base['Symptom'].unique())))
         selected_states = st.multiselect("발생 지역 (STATE)", options=sorted(list(df_base['State'].unique())))
-        
-        # 5. 사고 여부
         crash_option = st.radio("사고/피해 여부", ["전체", "사고 동반건만 보기"], index=0)
         
         st.markdown("---")
         st.markdown("**📅 기간 기준**")
-        # min_value와 max_value를 고정하여 날짜 선택 제한 버그 완벽 해결
         sel_start = st.date_input("시작일", value=st.session_state.filter_start_date, min_value=DATA_MIN_DATE, max_value=DATA_MAX_DATE)
         sel_end = st.date_input("종료일", value=st.session_state.filter_end_date, min_value=DATA_MIN_DATE, max_value=DATA_MAX_DATE)
         
@@ -182,30 +178,19 @@ with st.sidebar:
 # 5. 데이터 동적 필터링 적용
 # ==========================================
 mask = (df_base['Date'].dt.date >= st.session_state.filter_start_date) & (df_base['Date'].dt.date <= st.session_state.filter_end_date)
-
-if st.session_state.filter_brands:
-    mask &= (df_base['Brand'].isin(st.session_state.filter_brands))
-if selected_models:
-    mask &= (df_base['Model'].isin(selected_models))
-if selected_sizes:
-    mask &= (df_base['Size'].isin(selected_sizes))
-if selected_makes:
-    mask &= (df_base['Vehicle_Make'].isin(selected_makes))
-if selected_vehicles:
-    mask &= (df_base['Vehicle'].isin(selected_vehicles))
-if selected_symptoms:
-    mask &= (df_base['Symptom'].isin(selected_symptoms))
-if selected_states:
-    mask &= (df_base['State'].isin(selected_states))
-if crash_option == "사고 동반건만 보기":
-    mask &= (df_base['Crash'] == 1)
+if st.session_state.filter_brands: mask &= (df_base['Brand'].isin(st.session_state.filter_brands))
+if selected_models: mask &= (df_base['Model'].isin(selected_models))
+if selected_sizes: mask &= (df_base['Size'].isin(selected_sizes))
+if selected_makes: mask &= (df_base['Vehicle_Make'].isin(selected_makes))
+if selected_vehicles: mask &= (df_base['Vehicle'].isin(selected_vehicles))
+if selected_symptoms: mask &= (df_base['Symptom'].isin(selected_symptoms))
+if selected_states: mask &= (df_base['State'].isin(selected_states))
+if crash_option == "사고 동반건만 보기": mask &= (df_base['Crash'] == 1)
 
 df_filtered = df_base[mask]
 
-# NEXEN 분석 전용 (기간 조건 적용)
-df_nexen = df_base[(df_base['Date'].dt.date >= st.session_state.filter_start_date) & 
-                   (df_base['Date'].dt.date <= st.session_state.filter_end_date) & 
-                   (df_base['Brand'] == 'NEXEN')]
+# 대상 연도 (종료일 기준)
+target_year = st.session_state.filter_end_date.year
 
 if df_filtered.empty:
     st.warning("선택한 필터 조건에 해당하는 데이터가 존재하지 않습니다. 기간이나 조건을 변경해주세요.")
@@ -250,6 +235,7 @@ with col_m1:
     st.markdown('<div class="section-title">연도별 신고 건수 추이</div>', unsafe_allow_html=True)
     
     trend_data = df_filtered.groupby('Year').size().reset_index(name='Count').sort_values('Year')
+    trend_data['Year'] = trend_data['Year'].astype(str)
     fig_trend = px.bar(trend_data, x='Year', y='Count', text='Count')
     fig_trend.update_traces(marker_color='#719A7E', width=0.4, textposition='outside')
     fig_trend.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', height=300, margin=dict(l=0, r=0, t=20, b=0), xaxis_title=None, yaxis_title=None, xaxis=dict(type='category'))
@@ -275,7 +261,7 @@ with col_m2:
     ''', unsafe_allow_html=True)
 
 # ==========================================
-# 8. [신규 추가] 모델별 상위 10개 패턴 현황 및 지역별 발생현황
+# 8. 모델별 상위 10개 패턴 현황 및 지역별 발생현황
 # ==========================================
 st.markdown('<div class="section-header">PATTERN & REGION EXPLORER</div>', unsafe_allow_html=True)
 
@@ -283,8 +269,6 @@ col_pat1, col_pat2 = st.columns(2)
 
 with col_pat1:
     st.markdown('<div class="section-title">타이어 모델별 상위 10개 패턴 현황</div>', unsafe_allow_html=True)
-    
-    # 지정 브랜드 유무에 따른 모델 패턴 집계 (내림차순)
     pattern_df = df_filtered.groupby(['Brand', 'Model', 'Symptom']).size().reset_index(name='Count')
     pattern_df['Pattern'] = pattern_df['Brand'] + " " + pattern_df['Model'] + " (" + pattern_df['Symptom'] + ")"
     top10_patterns = pattern_df.sort_values(by='Count', ascending=False).head(10).sort_values(by='Count', ascending=True)
@@ -296,7 +280,6 @@ with col_pat1:
 
 with col_pat2:
     st.markdown('<div class="section-title">지역별 발생 현황 (State)</div>', unsafe_allow_html=True)
-    
     state_df = df_filtered.groupby('State').size().reset_index(name='Count').sort_values(by='Count', ascending=False).head(10).sort_values(by='Count', ascending=True)
     fig_state = px.bar(state_df, x='Count', y='State', orientation='h', text='Count')
     fig_state.update_traces(marker_color='#5D6D7E', width=0.4, textposition='outside')
@@ -304,48 +287,106 @@ with col_pat2:
     st.plotly_chart(fig_state, use_container_width=True)
 
 # ==========================================
-# 9. NEXEN 전용 신호 감지 & AI 요약
+# 9. NEXEN 전용 신호 감지 & AI 요약 (과거 3년 대비 분석)
 # ==========================================
 st.markdown('<div class="section-header">NEXEN DEEP DIVE</div>', unsafe_allow_html=True)
-st.markdown('<div class="section-title">NEXEN: 주요 신호 및 컴플레인 AI 요약</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="section-title">NEXEN: {target_year}년 컴플레인 이상 신호 및 AI 분석</div>', unsafe_allow_html=True)
 
-if not df_nexen.empty:
-    p2_st = st.session_state.filter_end_date - timedelta(days=180)
-    p1_st = p2_st - timedelta(days=180)
+df_nexen = df_base[df_base['Brand'] == 'NEXEN']
+df_nx_target = df_nexen[df_nexen['Year'] == target_year]
+df_nx_prev = df_nexen[df_nexen['Year'].isin([target_year-1, target_year-2, target_year-3])]
+
+if not df_nx_target.empty and not df_nx_prev.empty:
+    target_counts = df_nx_target['Symptom'].value_counts()
+    prev_counts = df_nx_prev['Symptom'].value_counts() / 3.0 # 과거 3년 연평균
     
-    nx_p2 = df_nexen[(df_nexen['Date'].dt.date >= p2_st) & (df_nexen['Date'].dt.date <= st.session_state.filter_end_date)]
-    nx_p1 = df_nexen[(df_nexen['Date'].dt.date >= p1_st) & (df_nexen['Date'].dt.date < p2_st)]
+    max_increase = -1
+    spike_symptom = "특이사항 없음"
+    t_cnt, p_cnt = 0, 0
     
-    sig_sym = nx_p2['Symptom'].value_counts().idxmax() if not nx_p2.empty else "N/A"
-    sig_p2_c = nx_p2['Symptom'].value_counts().max() if not nx_p2.empty else 0
-    sig_p1_c = len(nx_p1[nx_p1['Symptom'] == sig_sym]) if not nx_p1.empty else 0
+    for sym in target_counts.index:
+        tc = target_counts[sym]
+        pc = prev_counts.get(sym, 0)
+        diff = tc - pc
+        if diff > max_increase:
+            max_increase = diff
+            spike_symptom = sym
+            t_cnt = tc
+            p_cnt = pc
+            
+    badge_text = "급증 ↗" if max_increase > 0 else "유지/감소 ↘"
+    badge_color = "#D35400" if max_increase > 0 else "#2E86C1"
+    badge_border = "#E59866" if max_increase > 0 else "#85C1E9"
     
     st.markdown(f'''
         <div class="signal-box">
-            <div class="signal-icon">📈</div>
+            <div class="signal-icon">⚠️</div>
             <div>
-                <div style="font-weight: bold; color: #9C640C; font-size: 14px;">[NEXEN 모니터링] {sig_sym} 증상 집중 관찰 필요</div>
-                <div style="color: #A6ACAF; font-size: 12px; margin-top: 3px;">최근 180일 {sig_p2_c}건 발생 (이전 180일 대비 {sig_p2_c - sig_p1_c:+d}건)</div>
+                <div style="font-weight: bold; color: #9C640C; font-size: 15px;">
+                    [패턴 감지] {target_year}년 '{spike_symptom}' 집중 발생 
+                    <span style="border: 1px solid {badge_border}; color: {badge_color}; font-size: 11px; padding: 2px 8px; border-radius: 12px; margin-left: 10px;">{badge_text}</span>
+                </div>
+                <div style="color: #A6ACAF; font-size: 12px; margin-top: 5px;">
+                    데이터 분석 결과, {target_year}년 들어 NEXEN 타이어의 <b>{spike_symptom}</b> 컴플레인이 과거 3년 평균({p_cnt:.1f}건) 대비 <b>{t_cnt}건</b>으로 변화 추세를 보이고 있습니다.
+                </div>
             </div>
         </div>
     ''', unsafe_allow_html=True)
     
-    recent_nx = df_nexen.sort_values('Date', ascending=False).head(2)
+    # 종료일 기준 해당년도 주요 사례 표출
+    st.markdown(f'<div class="section-title" style="margin-top:20px; font-size: 16px;">▶ {target_year}년 발생 주요 사례 (Top 2)</div>', unsafe_allow_html=True)
+    recent_nx = df_nx_target.sort_values('Date', ascending=False).head(2)
+    
     for idx, (_, r) in enumerate(recent_nx.iterrows()):
         st.markdown(f'''
             <div class="ai-summary-card">
-                <div class="ai-summary-title">NEXEN 사례 {idx+1}. {r['State']} - {r['Symptom']} ({r['Date'].strftime('%Y-%m-%d')})</div>
+                <div class="ai-summary-title">사례 {idx+1}. {r['State']} 지역 - {r['Symptom']} 발생 ({r['Date'].strftime('%Y-%m-%d')})</div>
                 <div class="ai-summary-text">{r['Complaint_Text']}</div>
             </div>
         ''', unsafe_allow_html=True)
 else:
-    st.info("선택한 조회 기간 내 NEXEN 타이어 접수 데이터가 없습니다.")
+    st.info(f"NEXEN 브랜드의 {target_year}년 또는 과거 3개년 데이터가 충분치 않아 분석을 생략합니다.")
 
 # ==========================================
-# 10. 사고·피해 동반 신고 상세 보고서
+# 10. [신규 섹션] 종료일 기준 년도 타이어 PL(사고/피해) 현황
 # ==========================================
-st.markdown('<div class="section-header" style="margin-top: 30px;">CRASH REPORT</div>', unsafe_allow_html=True)
-st.markdown('<div class="section-title">🚨 사고·피해 동반 신고 상세 보고서</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header" style="margin-top: 40px;">PRODUCT LIABILITY (PL) STATUS</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="section-title">🚨 {target_year}년 타이어 PL (사고/피해 동반) 발생 현황</div>', unsafe_allow_html=True)
+
+df_pl_target = df_filtered[(df_filtered['Year'] == target_year) & (df_filtered['Crash'] == 1)]
+
+if df_pl_target.empty:
+    st.success(f"{target_year}년 필터 조건 내에 접수된 타이어 결함 사고/피해(PL) 건수가 없습니다.")
+else:
+    col_pl1, col_pl2, col_pl3 = st.columns([1, 2, 2])
+    
+    with col_pl1:
+        st.markdown(f'''
+        <div class="pl-card" style="height:100%; display:flex; flex-direction:column; justify-content:center;">
+            <div class="pl-title">{target_year}년 총 PL 접수</div>
+            <div class="pl-value">{len(df_pl_target)}<span style="font-size:16px; color:#E74C3C;"> 건</span></div>
+            <div style="font-size:12px; color:#A6ACAF; margin-top:5px;">선택 필터 기준 사고 동반</div>
+        </div>
+        ''', unsafe_allow_html=True)
+        
+    with col_pl2:
+        pl_brand = df_pl_target.groupby('Brand').size().reset_index(name='Count')
+        fig_pl_b = px.pie(pl_brand, names='Brand', values='Count', hole=0.4, title="브랜드별 PL 비중")
+        fig_pl_b.update_layout(height=220, margin=dict(l=0, r=0, t=30, b=0), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig_pl_b, use_container_width=True)
+        
+    with col_pl3:
+        pl_sym = df_pl_target.groupby('Symptom').size().reset_index(name='Count')
+        fig_pl_s = px.bar(pl_sym, x='Count', y='Symptom', orientation='h', title="원인(증상)별 PL 건수")
+        fig_pl_s.update_traces(marker_color='#E74C3C', width=0.4)
+        fig_pl_s.update_layout(height=220, margin=dict(l=0, r=0, t=30, b=0), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', yaxis=dict(title=None))
+        st.plotly_chart(fig_pl_s, use_container_width=True)
+
+# ==========================================
+# 11. 사고·피해 동반 신고 상세 보고서 (전체 기간 기준)
+# ==========================================
+st.markdown('<div class="section-header" style="margin-top: 40px;">CRASH REPORT LOGS</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">📝 전체 조회기간 사고·피해 동반 상세 보고서 (최근 3건)</div>', unsafe_allow_html=True)
 
 crash_df = df_filtered[df_filtered['Crash'] == 1].sort_values('Date', ascending=False)
 
@@ -367,12 +408,11 @@ else:
         ''', unsafe_allow_html=True)
 
 # ==========================================
-# 11. [신규 추가] 넥센 & 경쟁사 비교 분석 섹션 (동적 활성화)
+# 12. 넥센 & 경쟁사 비교 분석 섹션 (동적 활성화)
 # ==========================================
 st.markdown('<div class="section-header" style="margin-top: 40px;">COMPETITOR BENCHMARK</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">⚖️ NEXEN vs 경쟁사 비교 분석 보고서</div>', unsafe_allow_html=True)
 
-# 활성화 조건: Nexen 단독 선택이 아니고 2개 이상의 브랜드가 선택되었거나 '전체'일 경우
 active_brands = list(df_filtered['Brand'].unique())
 
 if len(st.session_state.filter_brands) == 1 and st.session_state.filter_brands[0] == 'NEXEN':
@@ -385,35 +425,30 @@ if len(st.session_state.filter_brands) == 1 and st.session_state.filter_brands[0
 else:
     st.success(f"비교 분석 활성화됨 (비교 대상 브랜드: {', '.join(active_brands)})")
     
-    # 1. 선택된 브랜드별 접수 현황 요약
     st.markdown("#### 1. 선택 브랜드별 접수 현황 요약")
     b_summary = df_filtered.groupby('Brand').agg(
         총접수건수=('Brand', 'count'),
         사고동반건수=('Crash', 'sum'),
         최다결함증상=('Symptom', lambda x: x.value_counts().idxmax())
     ).reset_index()
-    
     st.dataframe(b_summary, use_container_width=True)
     
-    # 2. 연도별 접수 현황 및 추이 비교 그래프
     st.markdown("#### 2. 연도별 접수 현황 및 추이 비교")
     y_b_df = df_filtered.groupby(['Year', 'Brand']).size().reset_index(name='Count').sort_values('Year')
+    y_b_df['Year'] = y_b_df['Year'].astype(str)
     fig_comp_trend = px.line(y_b_df, x='Year', y='Count', color='Brand', markers=True, title="브랜드별 연도별 추이 비교")
-    fig_comp_trend.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', height=350)
+    fig_comp_trend.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', height=350, xaxis=dict(type='category'))
     st.plotly_chart(fig_comp_trend, use_container_width=True)
     
-    # 3. Tire Fail Type별 각 브랜드 발생 현황
     st.markdown("#### 3. Tire Fail Type별 각 브랜드 발생 현황")
     fail_b_df = df_filtered.groupby(['Symptom', 'Brand']).size().reset_index(name='Count')
     fig_fail = px.bar(fail_b_df, x='Symptom', y='Count', color='Brand', barmode='group', title="결함 유형별 브랜드 건수 비교")
     fig_fail.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', height=350)
     st.plotly_chart(fig_fail, use_container_width=True)
     
-    # 4. 각 브랜드별 상위 10개 모델 및 발생 현황
     st.markdown("#### 4. 각 브랜드별 상위 10개 모델 발생 현황")
-    
     brand_cols = st.columns(min(len(active_brands), 3))
-    for idx, b_name in enumerate(active_brands[:3]): # 최대 3개 컬럼으로 시각화
+    for idx, b_name in enumerate(active_brands[:3]):
         with brand_cols[idx]:
             st.markdown(f"**[{b_name}] Top 10 모델**")
             b_m_df = df_filtered[df_filtered['Brand'] == b_name].groupby('Model').size().reset_index(name='Count').sort_values('Count', ascending=False).head(10)
