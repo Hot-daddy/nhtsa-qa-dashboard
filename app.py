@@ -45,7 +45,12 @@ st.markdown("""
     .ai-summary-title { font-weight: 700; color: #1A362D; margin-bottom: 5px; font-size: 14px; }
     .ai-summary-text { font-size: 13px; color: #5D6D7E; line-height: 1.5; }
     
-    /* 초기화 버튼 스타일 조정 */
+    /* 사고 피해 보고서 스타일 */
+    .crash-card { background-color: #FDEDEC; border-left: 4px solid #E74C3C; padding: 20px; margin-bottom: 15px; border-radius: 4px; border-top: 1px solid #FADBD8; border-right: 1px solid #FADBD8; border-bottom: 1px solid #FADBD8; }
+    .crash-title { font-weight: 800; color: #922B21; font-size: 15px; margin-bottom: 10px; }
+    .crash-meta { font-size: 12px; color: #922B21; margin-right: 10px; background-color: #F5B7B1; padding: 4px 8px; border-radius: 4px; font-weight: 600; display: inline-block; margin-bottom: 5px;}
+    .crash-text { font-size: 14px; color: #641E16; line-height: 1.6; margin-top: 10px; }
+    
     div[data-testid="stButton"] button { padding: 4px 10px; }
     </style>
 """, unsafe_allow_html=True)
@@ -136,13 +141,12 @@ with st.sidebar:
         submit_btn = st.form_submit_button("필터 적용하기", type="primary", use_container_width=True)
         
         if submit_btn:
-            # 폼 제출 시 Session State 업데이트
             st.session_state.filter_brand = sel_brand
             st.session_state.filter_start_date = sel_start
             st.session_state.filter_end_date = sel_end
 
 # ==========================================
-# 5. 데이터 필터링 적용 (Session State 값 기준)
+# 5. 데이터 필터링 적용 
 # ==========================================
 mask = (df_base['Date'].dt.date >= st.session_state.filter_start_date) & (df_base['Date'].dt.date <= st.session_state.filter_end_date)
 if st.session_state.filter_brand != "전체":
@@ -150,7 +154,6 @@ if st.session_state.filter_brand != "전체":
 
 df_filtered = df_base[mask]
 
-# 신호 감지 및 AI 요약용 전용 필터 (기간은 반영하되, 브랜드는 NEXEN 고정)
 df_nexen = df_base[(df_base['Date'].dt.date >= st.session_state.filter_start_date) & 
                    (df_base['Date'].dt.date <= st.session_state.filter_end_date) & 
                    (df_base['Brand'] == 'NEXEN')]
@@ -173,7 +176,6 @@ top_symptom_cnt = df_filtered['Symptom'].value_counts().max()
 top_vehicle = df_filtered['Vehicle'].value_counts().idxmax()
 top_vehicle_cnt = df_filtered['Vehicle'].value_counts().max()
 
-# --- NEXEN 전용 신호 감지(Signal) 로직 ---
 p2_start = st.session_state.filter_end_date - timedelta(days=180)
 p1_start = p2_start - timedelta(days=180)
 
@@ -324,5 +326,35 @@ with col_c2:
 with col_c3:
     st.markdown('<div class="section-header">SPEED EXPLORER</div><div class="section-title">주행 속도</div>', unsafe_allow_html=True)
     st.plotly_chart(draw_horizontal_bar(df_filtered['Speed']), use_container_width=True)
+
+
+# ==========================================
+# 11. 화면 렌더링: 사고·피해 동반 신고 상세 보고서
+# ==========================================
+st.markdown('<div class="section-header" style="margin-top: 40px;">CRASH & DAMAGE REPORT</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">🚨 사고·피해 동반 신고 상세 보고서</div>', unsafe_allow_html=True)
+
+# 필터링된 데이터에서 사고(Crash == 1) 건수만 추출 후 최신순 정렬
+crash_df = df_filtered[df_filtered['Crash'] == 1].sort_values(by='Date', ascending=False)
+
+if crash_df.empty:
+    st.info("선택한 필터 조건 내에 사고나 피해를 동반한 신고 건수가 없습니다.")
+else:
+    st.markdown(f"<div style='font-size:14px; color:#5D6D7E; margin-bottom:15px;'>총 <b>{len(crash_df)}</b>건의 사고/피해 동반 신고가 조회되었습니다. (최근 발생순)</div>", unsafe_allow_html=True)
+    
+    # 각 사고 건별로 카드 형태의 항목별 보고서 출력
+    for idx, row in crash_df.iterrows():
+        st.markdown(f'''
+        <div class="crash-card">
+            <div class="crash-title">[{row['Brand']}] {row['Vehicle']} - {row['Symptom']} 사고 발생</div>
+            <div style="margin-bottom: 8px;">
+                <span class="crash-meta">📅 {row['Date'].strftime('%Y-%m-%d')}</span>
+                <span class="crash-meta">📍 {row['State']}</span>
+                <span class="crash-meta">⏱ {row['Speed']}</span>
+                <span class="crash-meta">🛞 {row['Model']} ({row['Size']})</span>
+            </div>
+            <div class="crash-text"><b>신고 원문 내역:</b><br>{row['Complaint_Text']}</div>
+        </div>
+        ''', unsafe_allow_html=True)
 
 st.markdown("<br><div style='text-align:center; font-size:11px; color:#A6ACAF;'>신고 건수는 판매량·장착 대수로 보정된 불량률이 아닙니다. 타이어의 결함이나 사고 원인을 확정하지 않습니다.</div>", unsafe_allow_html=True)
