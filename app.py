@@ -35,7 +35,6 @@ st.markdown("""
     .qa-title { font-size: 11px; font-weight: bold; color: #A3E4D7; letter-spacing: 1px; margin-bottom: 8px; }
     .qa-main-text { font-size: 18px; font-weight: 700; margin-bottom: 15px; }
     .qa-content { font-size: 13px; line-height: 1.7; color: #E8F8F5; margin-bottom: 15px; }
-    .qa-highlight { font-weight: 700; color: #FFFFFF; border-bottom: 1px solid #A3E4D7; padding-bottom: 2px; }
     
     .signal-box { background-color: #FDFAF2; border: 1px solid #F6DDCC; padding: 18px; border-radius: 8px; display: flex; align-items: center; gap: 15px; margin-bottom: 10px; }
     .signal-icon { background-color: #FDEBD0; padding: 10px; border-radius: 8px; color: #D68910; }
@@ -319,7 +318,6 @@ if not df_nx_target.empty:
         pc = prev_counts.get(sym, 0)
         diff = tc - pc
         
-        # 신규 발생(0건->N건)을 최우선 심각 패턴으로 간주
         if pc == 0 and tc > 0:
             if diff > max_increase or not is_new_anomaly:
                 max_increase = diff
@@ -365,7 +363,6 @@ if not df_nx_target.empty:
     st.markdown(f'<div style="margin-top:20px; font-weight:bold; font-size: 15px; color:#2C3E50;">▶ {target_year}년 발생 전체 사례 목록</div>', unsafe_allow_html=True)
     cases_nx = df_nx_target.sort_values('Date', ascending=False)
     
-    # 1~3건 기본 노출, 그 이상은 Expander
     for idx, r in cases_nx.head(3).iterrows():
         st.markdown(f'''
             <div class="ai-summary-card">
@@ -389,7 +386,7 @@ else:
 
 
 # ==========================================
-# 10. 해당년도 PL 상세 보고서 (Expandable UI)
+# 10. 해당년도 PL 상세 보고서
 # ==========================================
 def draw_pl_card(r):
     st.markdown(f'''
@@ -471,12 +468,16 @@ else:
 
 
 # ==========================================
-# 12. 넥센 & 경쟁사 비교 분석 섹션
+# 12. 넥센 & 경쟁사 비교 분석 섹션 (NEXEN 1순위 정렬 적용)
 # ==========================================
 st.markdown('<div class="section-header" style="margin-top: 40px;">COMPETITOR BENCHMARK</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">⚖️ NEXEN vs 경쟁사 비교 분석 보고서</div>', unsafe_allow_html=True)
 
 active_brands = list(df_filtered['Brand'].unique())
+# NEXEN이 목록에 있으면 항상 최우선으로 배치
+if 'NEXEN' in active_brands:
+    active_brands.remove('NEXEN')
+    active_brands.insert(0, 'NEXEN')
 
 if not is_multi_brand:
     st.markdown('''
@@ -490,7 +491,6 @@ else:
     
     st.markdown("#### 1. 선택 브랜드별 접수 현황 요약")
     b_summary = df_filtered.groupby('Brand').agg(총접수건수=('Brand', 'count'), 사고동반건수=('Crash', 'sum'), 최다결함증상=('Symptom', lambda x: x.value_counts().idxmax())).reset_index()
-    # 총 접수건수 내림차순 정렬 및 No. 1부터 인덱싱
     b_summary = b_summary.sort_values('총접수건수', ascending=False).reset_index(drop=True)
     b_summary.index = np.arange(1, len(b_summary) + 1)
     b_summary.index.name = 'No.'
@@ -513,7 +513,6 @@ else:
     
     st.markdown("#### 4. 각 브랜드별 상위 10개 모델 (클릭하여 증상 상세 보기)")
     
-    # 선택된 모든 브랜드에 대해 3열씩 묶어서 출력
     for i in range(0, len(active_brands), 3):
         chunk = active_brands[i:i+3]
         cols = st.columns(3)
@@ -522,7 +521,6 @@ else:
                 st.markdown(f"**[{b_name}] Top 모델**")
                 b_m_df = df_filtered[df_filtered['Brand'] == b_name].groupby('Model').size().reset_index(name='Count').sort_values('Count', ascending=False).head(10)
                 
-                # 모델을 Expander로 생성 (드릴다운)
                 for _, row in b_m_df.iterrows():
                     m_name = row['Model']
                     m_cnt = row['Count']
