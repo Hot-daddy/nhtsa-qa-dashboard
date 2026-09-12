@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
-from datetime import date
+from datetime import date, timedelta
 
 # ==========================================
-# 1. 페이지 기본 설정 및 통합 커스텀 CSS
+# 1. 페이지 설정 및 통합 커스텀 CSS
 # ==========================================
 st.set_page_config(page_title="NHTSA / TIRE QUALITY MONITOR", layout="wide", initial_sidebar_state="expanded")
 
@@ -51,7 +52,43 @@ st.markdown("""
 
 
 # ==========================================
-# 2. 사이드바 (탐색 필터 + 일괄 적용 버튼 폼)
+# 2. 동적 데이터 생성 (실제 데이터 로드로 대체 가능)
+# ==========================================
+@st.cache_data
+def load_nhtsa_data():
+    np.random.seed(42)
+    n_records = 3000
+    
+    # 2020년부터 현재까지의 가상 데이터 생성
+    dates = pd.to_datetime(np.random.choice(pd.date_range('2020-01-01', '2026-09-08'), n_records))
+    brands = np.random.choice(['NEXEN', 'HANKOOK', 'KUMHO', 'MICHELIN', 'OTHER'], n_records, p=[0.15, 0.25, 0.2, 0.3, 0.1])
+    symptoms = np.random.choice(['트레드 분리', '진동-밸런스', '파열 Blowout', '변형-부풀음', '균열 Cracking'], n_records)
+    vehicles = np.random.choice(['RAM 3500', 'Hyundai Sonata', 'JEEP WRANGLER', 'Ford F-150', 'Kia K5'], n_records)
+    models = np.random.choice(['N Priz AH8', 'Roadian HTX', 'N Fera AU7', 'Aria AH7', 'Winguard'], n_records)
+    sizes = np.random.choice(['225/55R17', '235/45R18', '245/40R19', '215/55R17', '275/40R20'], n_records)
+    states = np.random.choice(['CA (캘리포니아)', 'TX (텍사스)', 'FL (플로리다)', 'NY (뉴욕)', 'PA (펜실베니아)'], n_records)
+    speeds = np.random.choice(['60-70 mph', '70-80 mph', '50-60 mph', 'Under 50 mph', 'Over 80 mph'], n_records)
+    crashes = np.random.choice([0, 1], n_records, p=[0.97, 0.03]) # 3% 사고율
+    
+    df = pd.DataFrame({
+        'Date': dates,
+        'Year': dates.year.astype(str),
+        'Brand': brands,
+        'Symptom': symptoms,
+        'Vehicle': vehicles,
+        'Model': models,
+        'Size': sizes,
+        'State': states,
+        'Speed': speeds,
+        'Crash': crashes
+    })
+    return df
+
+df_base = load_nhtsa_data()
+
+
+# ==========================================
+# 3. 사이드바 (탐색 필터 + 일괄 적용 폼)
 # ==========================================
 with st.sidebar:
     st.markdown("**탐색 필터** <span style='float:right; font-size:12px; color:gray; cursor:pointer;'>초기화</span>", unsafe_allow_html=True)
@@ -60,62 +97,97 @@ with st.sidebar:
     col_btn1.button("NEXEN 중심", use_container_width=True)
     col_btn2.button("전체 브랜드", use_container_width=True)
     
-    # st.form을 사용하여 필터 값 일괄 적용
     with st.form("filter_form"):
-        st.text_input("타이어 관련 키워드", placeholder="NEXEN, sidewall, DOT...")
-        st.selectbox("타이어 브랜드", ["NEXEN (80)"])
+        # 동적 필터
+        selected_brand = st.selectbox("타이어 브랜드", ["전체", "NEXEN", "HANKOOK", "KUMHO", "MICHELIN"], index=1)
         st.selectbox("브랜드 판별 근거", ["등록 브랜드 + 원문 언급"])
-        st.selectbox("차량 브랜드", ["전체 차량 브랜드"])
-        st.selectbox("차종", ["전체 차종"])
         
         st.markdown("---")
         st.markdown("**기간 기준**")
-        st.date_input("시작일", value=date(2020, 1, 1))
-        st.date_input("종료일", value=date(2026, 9, 8))
+        start_date = st.date_input("시작일", value=date(2020, 1, 1))
+        end_date = st.date_input("종료일", value=date(2026, 9, 8))
         
         st.markdown("---")
-        # 폼 제출 버튼 (이 버튼을 클릭해야 데이터 갱신)
         submit_btn = st.form_submit_button("필터 적용하기", type="primary", use_container_width=True)
-        
-    if submit_btn:
-        st.toast("필터가 성공적으로 적용되었습니다.", icon="✅")
 
 
 # ==========================================
-# 3. 메인 헤더 및 KPI 영역
+# 4. 데이터 필터링 로직 적용
+# ==========================================
+# 날짜 필터 적용
+mask = (df_base['Date'].dt.date >= start_date) & (df_base['Date'].dt.date <= end_date)
+
+# 브랜드 필터 적용
+if selected_brand != "전체":
+    mask &= (df_base['Brand'] == selected_brand)
+
+df_filtered = df_base[mask]
+
+# 필터 결과에 데이터가 없는 경우 처리
+if df_filtered.empty:
+    st.warning("선택한 조건에 해당하는 데이터가 없습니다. 필터를 변경해주세요.")
+    st.stop()
+
+# ==========================================
+# 5. 동적 KPI 계산
+# ==========================================
+total_complaints = len(df_filtered)
+
+# 최근 180일 필터
+recent_180_date = end_date - timedelta(days=180)
+recent_180_count = len(df_filtered[df_filtered['Date'].dt.date >= recent_180_date])
+
+# 사고 동반 신고 건수
+crash_count = df_filtered['Crash'].sum()
+
+# 고유 차종 수
+unique_vehicles = df_filtered['Vehicle'].nunique()
+
+# 가장 많이 발생한 증상 및 차종 (QA Brief용)
+top_symptom = df_filtered['Symptom'].value_counts().idxmax() if not df_filtered.empty else "없음"
+top_symptom_cnt = df_filtered['Symptom'].value_counts().max() if not df_filtered.empty else 0
+top_vehicle = df_filtered['Vehicle'].value_counts().idxmax() if not df_filtered.empty else "없음"
+top_vehicle_cnt = df_filtered['Vehicle'].value_counts().max() if not df_filtered.empty else 0
+
+
+# ==========================================
+# 6. 메인 헤더 및 KPI 영역 렌더링
 # ==========================================
 st.markdown('<div class="top-category">NHTSA / TIRE QUALITY MONITOR</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-title">작은 신호에서, 품질의 다음을.</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">타이어 관련 신고를 연결하고, 확인이 필요한 패턴을 찾아보세요.</div>', unsafe_allow_html=True)
-st.markdown('''
+st.markdown(f'''
     <div class="badge-container">
         <span class="status-badge">● 공식 데이터 확보</span>
-        <span class="filter-badge">조회 기준 2026-09-11</span>
-        <span class="filter-badge">최종 접수 2026-09-08</span>
+        <span class="filter-badge">조회 시작 {start_date}</span>
+        <span class="filter-badge">조회 종료 {end_date}</span>
     </div>
 ''', unsafe_allow_html=True)
 
-st.markdown('<div class="section-title">NEXEN 모니터링</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="section-title">{selected_brand} 모니터링</div>', unsafe_allow_html=True)
 col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
 with col_kpi1:
-    st.markdown('<div class="kpi-card"><div class="kpi-title">필터에 해당하는 신고 📄</div><div class="kpi-value">80</div><div class="kpi-desc">ODI 신고번호 기준 - 중복 제거</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-card"><div class="kpi-title">필터에 해당하는 신고 📄</div><div class="kpi-value">{total_complaints:,}</div><div class="kpi-desc">ODI 신고번호 기준 - 중복 제거</div></div>', unsafe_allow_html=True)
 with col_kpi2:
-    st.markdown('<div class="kpi-card"><div class="kpi-title">최근 180일 접수 ↗</div><div class="kpi-value">7</div><div class="kpi-desc">직전 180일 7건 +0%</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-card"><div class="kpi-title">최근 180일 접수 ↗</div><div class="kpi-value">{recent_180_count:,}</div><div class="kpi-desc">최근 180일 기준 증가 추이</div></div>', unsafe_allow_html=True)
 with col_kpi3:
-    st.markdown('<div class="kpi-card"><div class="kpi-title">사고·피해 동반 신고 ⚠</div><div class="kpi-value">1</div><div class="kpi-desc">사고 1 - 부상 신고 0건</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-card"><div class="kpi-title">사고·피해 동반 신고 ⚠</div><div class="kpi-value">{crash_count:,}</div><div class="kpi-desc">사고 및 부상 연관 데이터</div></div>', unsafe_allow_html=True)
 with col_kpi4:
-    st.markdown('<div class="kpi-card"><div class="kpi-title">등록 차종 🚗</div><div class="kpi-value">34</div><div class="kpi-desc">차량 정보 미등록 1건 별도</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-card"><div class="kpi-title">등록 차종 🚗</div><div class="kpi-value">{unique_vehicles:,}</div><div class="kpi-desc">영향을 받은 고유 차종 수</div></div>', unsafe_allow_html=True)
 
 
 # ==========================================
-# 4. 트렌드 차트 & QA Brief
+# 7. 트렌드 차트 & QA Brief
 # ==========================================
 col_mid1, col_mid2 = st.columns([2.3, 1])
 
 with col_mid1:
     st.markdown('<div class="section-header">COMPLAINT TREND</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">신고 건수 추이</div>', unsafe_allow_html=True)
-    trend_data = pd.DataFrame({'Year': ['2020', '2021', '2022', '2023', '2024', '2025', '2026*'], 'Count': [11, 17, 12, 7, 11, 14, 8]})
+    st.markdown('<div class="section-title">신고 건수 추이 (연도별)</div>', unsafe_allow_html=True)
+    
+    # 동적 트렌드 데이터 생성
+    trend_data = df_filtered.groupby('Year').size().reset_index(name='Count')
+    
     fig_trend = px.bar(trend_data, x='Year', y='Count', text='Count')
     fig_trend.update_traces(marker_color='#719A7E', width=0.4, textposition='outside', textfont=dict(color='gray'))
     fig_trend.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', height=320, margin=dict(l=0, r=0, t=20, b=0), xaxis_title=None, yaxis_title=None, yaxis=dict(showgrid=True, gridcolor='#F2F3F4'), xaxis=dict(showgrid=False))
@@ -123,14 +195,14 @@ with col_mid1:
 
 with col_mid2:
     st.markdown('<div class="section-header">&nbsp;</div>', unsafe_allow_html=True)
-    st.markdown('''
+    st.markdown(f'''
         <div class="qa-brief-card">
             <div class="qa-title">✨ YOUR QA BRIEF</div>
             <div class="qa-main-text">현재 필터 요약</div>
             <div class="qa-content">
-                NEXEN 관련 신고 <span class="qa-highlight">80건</span>이 현재 조건에 해당합니다.<br><br>
-                가장 많이 포착된 증상은 <span class="qa-highlight">트레드-벨트 분리 (29건)</span>입니다.<br><br>
-                등록 차종 중 <span class="qa-highlight">RAM 3500 (29건)</span>이 가장 많습니다.
+                {selected_brand} 관련 신고 <span class="qa-highlight">{total_complaints:,}건</span>이 현재 조건에 해당합니다.<br><br>
+                가장 많이 포착된 증상은 <span class="qa-highlight">{top_symptom} ({top_symptom_cnt}건)</span>입니다.<br><br>
+                등록 차종 중 <span class="qa-highlight">{top_vehicle} ({top_vehicle_cnt}건)</span>이 가장 많습니다.
             </div>
             <div class="qa-button">📋 요약 복사</div>
         </div>
@@ -138,7 +210,7 @@ with col_mid2:
 
 
 # ==========================================
-# 5. 신호 감지 & AI 원문 요약
+# 8. 신호 감지 & AI 원문 요약 
 # ==========================================
 st.markdown('<div class="section-header">FROM PATTERNS TO QUESTIONS</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">어떤 신호를 먼저 살펴볼까요?</div>', unsafe_allow_html=True)
@@ -148,14 +220,13 @@ st.markdown('''
         <div class="signal-icon">📈</div>
         <div>
             <div style="font-weight: bold; color: #9C640C; font-size: 15px;">균열-드라이 로트 - 증가 후보 <span style="border: 1px solid #E59866; color: #D35400; font-size: 11px; padding: 2px 8px; border-radius: 12px; margin-left: 10px;">신규 ↗</span></div>
-            <div style="color: #A6ACAF; font-size: 12px; margin-top: 5px;">최근 180일 3건 / 이전 0건</div>
+            <div style="color: #A6ACAF; font-size: 12px; margin-top: 5px;">최근 180일 통계적 이상 패턴 탐지됨</div>
         </div>
     </div>
 ''', unsafe_allow_html=True)
 
 st.markdown('<div class="section-header" style="margin-top:20px;">AI COMPLAINT ANALYSIS</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">주요 컴플레인 AI 요약 (최다 발생 유형)</div>', unsafe_allow_html=True)
-
 st.markdown("""
 <div class="ai-summary-card">
     <div class="ai-summary-title">사례 1. 고속도로 주행 중 트레드 분리 (Tread Separation) 현상</div>
@@ -165,68 +236,47 @@ st.markdown("""
     <div class="ai-summary-title">사례 2. 원인 불명의 사이드월 파열 (Sidewall Blowout)</div>
     <div class="ai-summary-text">텍사스에서 60mph로 정속 주행 중 우측 앞바퀴 사이드월이 갑자기 파열됨. 공기압 경고등(TPMS) 점등 직후 발생하였으며, 타이어 마일리지는 약 15,000 마일 수준.</div>
 </div>
-<div class="ai-summary-card">
-    <div class="ai-summary-title">사례 3. 특정 속도 구간에서의 이상 진동 (Vibration/Noise)</div>
-    <div class="ai-summary-text">50~60mph 구간에서 차량 전체에 심한 진동 발생. 딜러샵 점검 결과 타이어 내부 구조 변형(벨트 분리 의심)으로 판정받아 4본 모두 조기 교체 진행.</div>
-</div>
 """, unsafe_allow_html=True)
 
 
 # ==========================================
-# 6. 다차원 탐색 (가로 바 차트 2행 3열 그리드)
+# 9. 다차원 탐색 (가로 바 차트 동적 생성 함수)
 # ==========================================
-def draw_horizontal_bar(df, x_col, y_col):
-    fig = px.bar(df, x=x_col, y=y_col, orientation='h', text=x_col)
+def draw_horizontal_bar(df_col, title):
+    # 컬럼 데이터 빈도수 계산 후 상위 5개 추출 (차트 표현을 위해 역순 정렬)
+    data = df_col.value_counts().head(5).reset_index()
+    data.columns = ['Item', 'Count']
+    data = data.sort_values('Count', ascending=True)
+    
+    fig = px.bar(data, x='Count', y='Item', orientation='h', text='Item')
     fig.update_traces(marker_color='#719A7E', width=0.2, textposition='outside', textfont=dict(color='#2C3E50', size=11))
     fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(l=0, r=20, t=10, b=0),
-                      xaxis=dict(showgrid=False, showticklabels=False, title=None, range=[0, df[x_col].max()*1.3]),
+                      xaxis=dict(showgrid=False, showticklabels=False, title=None, range=[0, data['Count'].max()*1.3]),
                       yaxis=dict(showgrid=False, title=None, categoryorder='total ascending', tickfont=dict(color='#5D6D7E', size=11)))
     return fig
 
+# 첫 번째 행 차트 렌더링
 col_b1, col_b2, col_b3 = st.columns(3)
 with col_b1:
     st.markdown('<div class="section-header">SYMPTOM EXPLORER</div><div class="section-title">주요 결함-증상</div>', unsafe_allow_html=True)
-    sym_df = pd.DataFrame({'Item': ['트레드 분리', '진동-밸런스', '파열 Blowout', '변형-부풀음', '균열 Cracking'][::-1], 'Count': [29, 25, 18, 11, 7][::-1]})
-    st.plotly_chart(draw_horizontal_bar(sym_df, 'Count', 'Item'), use_container_width=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['Symptom'], '주요 결함-증상'), use_container_width=True)
 with col_b2:
     st.markdown('<div class="section-header">VEHICLE EXPLORER</div><div class="section-title">차종별 분포</div>', unsafe_allow_html=True)
-    veh_df = pd.DataFrame({'Item': ['RAM 3500', 'Hyundai Sonata', 'JEEP WRANGLER', 'Ford F-150', 'Kia K5'][::-1], 'Count': [29, 25, 8, 6, 5][::-1]})
-    st.plotly_chart(draw_horizontal_bar(veh_df, 'Count', 'Item'), use_container_width=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['Vehicle'], '차종별 분포'), use_container_width=True)
 with col_b3:
     st.markdown('<div class="section-header">MODEL EXPLORER</div><div class="section-title">타이어 모델 분포</div>', unsafe_allow_html=True)
-    mod_df = pd.DataFrame({'Item': ['N Priz AH8', 'Roadian HTX', 'N Fera AU7', 'Aria AH7', 'Winguard'][::-1], 'Count': [32, 18, 14, 9, 7][::-1]})
-    st.plotly_chart(draw_horizontal_bar(mod_df, 'Count', 'Item'), use_container_width=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['Model'], '타이어 모델 분포'), use_container_width=True)
 
+# 두 번째 행 차트 렌더링
 col_c1, col_c2, col_c3 = st.columns(3)
 with col_c1:
     st.markdown('<div class="section-header">SIZE EXPLORER</div><div class="section-title">주요 규격 분포</div>', unsafe_allow_html=True)
-    size_df = pd.DataFrame({'Item': ['225/55R17', '235/45R18', '245/40R19', '215/55R17', '275/40R20'][::-1], 'Count': [24, 19, 15, 12, 10][::-1]})
-    st.plotly_chart(draw_horizontal_bar(size_df, 'Count', 'Item'), use_container_width=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['Size'], '주요 규격 분포'), use_container_width=True)
 with col_c2:
     st.markdown('<div class="section-header">STATE EXPLORER</div><div class="section-title">발생 지역(State)</div>', unsafe_allow_html=True)
-    state_df = pd.DataFrame({'Item': ['CA (캘리포니아)', 'TX (텍사스)', 'FL (플로리다)', 'NY (뉴욕)', 'PA (펜실베니아)'][::-1], 'Count': [22, 18, 15, 10, 8][::-1]})
-    st.plotly_chart(draw_horizontal_bar(state_df, 'Count', 'Item'), use_container_width=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['State'], '발생 지역'), use_container_width=True)
 with col_c3:
     st.markdown('<div class="section-header">SPEED EXPLORER</div><div class="section-title">주행 속도</div>', unsafe_allow_html=True)
-    speed_df = pd.DataFrame({'Item': ['60-70 mph', '70-80 mph', '50-60 mph', 'Under 50 mph', 'Over 80 mph'][::-1], 'Count': [35, 20, 15, 6, 4][::-1]})
-    st.plotly_chart(draw_horizontal_bar(speed_df, 'Count', 'Item'), use_container_width=True)
-
-
-# ==========================================
-# 7. 글로벌 경쟁사 상세 비교
-# ==========================================
-st.markdown('<div class="section-header">DEEP DIVE: COMPETITOR ANALYSIS</div>', unsafe_allow_html=True)
-st.markdown('<div class="section-title">글로벌 4대 브랜드 상세 정량 비교</div>', unsafe_allow_html=True)
-
-compare_data = pd.DataFrame({
-    '평가 항목': ['누적 접수 건수', '사망/부상 비율(심각도)', '최다 불만 유형 (1순위)', '추돌/화재 사고 건수', '종합 경쟁력 지수'],
-    'NEXEN': ['182건', '1.6%', 'Tread Separation', '0건', '우수 (A)'],
-    'HANKOOK': ['454건', '2.1%', 'Sidewall Blowout', '2건', '양호 (B+)'],
-    'KUMHO': ['421건', '2.5%', 'Vibration/Noise', '1건', '양호 (B+)'],
-    'MICHELIN': ['2,168건', '1.2%', 'Rapid Wear', '5건', '우수 (A)']
-})
-
-html_table = compare_data.to_html(classes='custom-table', index=False, border=0)
-st.markdown(html_table, unsafe_allow_html=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['Speed'], '주행 속도'), use_container_width=True)
 
 st.markdown("<br><div style='text-align:center; font-size:11px; color:#A6ACAF;'>신고 건수는 판매량·장착 대수로 보정된 불량률이 아닙니다. 타이어의 결함이나 사고 원인을 확정하지 않습니다.</div>", unsafe_allow_html=True)
