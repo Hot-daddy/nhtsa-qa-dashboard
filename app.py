@@ -10,32 +10,26 @@ st.set_page_config(page_title="NHTSA / TIRE QUALITY MONITOR", layout="wide", ini
 
 st.markdown("""
     <style>
-    /* 폰트 및 기본 배경 */
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
     * { font-family: 'Pretendard', sans-serif; }
     .stApp { background-color: #F8F9F9; }
     
-    /* 상단 헤더 */
     .top-category { font-size: 12px; font-weight: 700; color: #7F8C8D; letter-spacing: 1px; margin-bottom: 5px; }
     .main-title { font-size: 36px; font-weight: 800; color: #1E272E; margin-bottom: 5px; }
     .sub-title { font-size: 15px; color: #7F8C8D; margin-bottom: 25px; }
     
-    /* 뱃지 */
     .badge-container { display: flex; gap: 10px; margin-bottom: 20px; }
     .status-badge { background-color: #EAFAF1; color: #27AE60; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; }
     .filter-badge { background-color: #F2F3F4; color: #5D6D7E; padding: 4px 10px; border-radius: 4px; font-size: 12px; border: 1px solid #E5E8E8; }
     
-    /* KPI 카드 */
     .kpi-card { background-color: white; padding: 20px; border-radius: 8px; border: 1px solid #EAECEE; box-shadow: 0 1px 3px rgba(0,0,0,0.02); height: 120px; }
     .kpi-title { font-size: 13px; color: #7F8C8D; margin-bottom: 10px; display: flex; justify-content: space-between; }
     .kpi-value { font-size: 32px; font-weight: 800; color: #2C3E50; margin-bottom: 5px; line-height: 1.2; }
     .kpi-desc { font-size: 12px; color: #A6ACAF; }
     
-    /* 섹션 타이틀 */
     .section-header { font-size: 11px; font-weight: 700; color: #7F8C8D; letter-spacing: 1px; margin-top: 30px; margin-bottom: 5px; text-transform: uppercase; }
     .section-title { font-size: 18px; font-weight: 700; color: #2C3E50; margin-bottom: 15px; }
     
-    /* QA Brief 카드 (다크 그린) */
     .qa-brief-card { background-color: #1A362D; color: white; padding: 30px; border-radius: 8px; height: 100%; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     .qa-title { font-size: 12px; font-weight: bold; color: #A3E4D7; letter-spacing: 1px; margin-bottom: 10px; }
     .qa-main-text { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
@@ -43,16 +37,13 @@ st.markdown("""
     .qa-highlight { font-weight: 700; color: #FFFFFF; border-bottom: 1px solid #A3E4D7; padding-bottom: 2px; }
     .qa-button { background-color: transparent; color: white; border: 1px solid #45B39D; padding: 8px 15px; border-radius: 4px; font-size: 13px; width: 100%; text-align: center; cursor: pointer; }
     
-    /* 신호 알림 박스 */
     .signal-box { background-color: #FDFAF2; border: 1px solid #F6DDCC; padding: 20px; border-radius: 8px; display: flex; align-items: center; gap: 15px; margin-bottom: 10px; }
     .signal-icon { background-color: #FDEBD0; padding: 10px; border-radius: 8px; color: #D68910; }
     
-    /* AI 요약 카드 (이미지 1 내용 + 이미지 2 테마 적용) */
     .ai-summary-card { background-color: #FFFFFF; border-left: 4px solid #45B39D; padding: 15px 20px; margin-bottom: 10px; border-radius: 4px; border-top: 1px solid #EAECEE; border-right: 1px solid #EAECEE; border-bottom: 1px solid #EAECEE; }
     .ai-summary-title { font-weight: 700; color: #1A362D; margin-bottom: 5px; font-size: 14px; }
     .ai-summary-text { font-size: 13px; color: #5D6D7E; line-height: 1.5; }
     
-    /* 커스텀 테이블 (이미지 1 정량비교용) */
     .custom-table th { background-color: #1A362D !important; color: white !important; font-weight: normal; text-align: center; }
     .custom-table td { text-align: center; color: #2C3E50; font-size: 14px; }
     </style>
@@ -60,29 +51,38 @@ st.markdown("""
 
 
 # ==========================================
-# 2. 사이드바 (탐색 필터) - 이미지 2 기준
+# 2. 사이드바 (탐색 필터 + 일괄 적용 버튼 폼)
 # ==========================================
 with st.sidebar:
     st.markdown("**탐색 필터** <span style='float:right; font-size:12px; color:gray; cursor:pointer;'>초기화</span>", unsafe_allow_html=True)
     st.markdown("---")
     col_btn1, col_btn2 = st.columns(2)
-    col_btn1.button("NEXEN 중심", type="primary", use_container_width=True)
+    col_btn1.button("NEXEN 중심", use_container_width=True)
     col_btn2.button("전체 브랜드", use_container_width=True)
     
-    st.text_input("타이어 관련 키워드", placeholder="NEXEN, sidewall, DOT...")
-    st.selectbox("타이어 브랜드", ["NEXEN (80)"])
-    st.selectbox("브랜드 판별 근거", ["등록 브랜드 + 원문 언급"])
-    st.selectbox("차량 브랜드", ["전체 차량 브랜드"])
-    st.selectbox("차종", ["전체 차종"])
-    
-    st.markdown("---")
-    st.markdown("**기간 기준**")
-    st.date_input("시작일", value=date(2020, 1, 1))
-    st.date_input("종료일", value=date(2026, 9, 8))
+    # st.form을 사용하여 필터 값 일괄 적용
+    with st.form("filter_form"):
+        st.text_input("타이어 관련 키워드", placeholder="NEXEN, sidewall, DOT...")
+        st.selectbox("타이어 브랜드", ["NEXEN (80)"])
+        st.selectbox("브랜드 판별 근거", ["등록 브랜드 + 원문 언급"])
+        st.selectbox("차량 브랜드", ["전체 차량 브랜드"])
+        st.selectbox("차종", ["전체 차종"])
+        
+        st.markdown("---")
+        st.markdown("**기간 기준**")
+        st.date_input("시작일", value=date(2020, 1, 1))
+        st.date_input("종료일", value=date(2026, 9, 8))
+        
+        st.markdown("---")
+        # 폼 제출 버튼 (이 버튼을 클릭해야 데이터 갱신)
+        submit_btn = st.form_submit_button("필터 적용하기", type="primary", use_container_width=True)
+        
+    if submit_btn:
+        st.toast("필터가 성공적으로 적용되었습니다.", icon="✅")
 
 
 # ==========================================
-# 3. 메인 헤더 및 KPI 영역 (이미지 2 기준)
+# 3. 메인 헤더 및 KPI 영역
 # ==========================================
 st.markdown('<div class="top-category">NHTSA / TIRE QUALITY MONITOR</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-title">작은 신호에서, 품질의 다음을.</div>', unsafe_allow_html=True)
@@ -138,7 +138,7 @@ with col_mid2:
 
 
 # ==========================================
-# 5. 신호 감지 & AI 원문 요약 (이미지 1 + 2 통합)
+# 5. 신호 감지 & AI 원문 요약
 # ==========================================
 st.markdown('<div class="section-header">FROM PATTERNS TO QUESTIONS</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">어떤 신호를 먼저 살펴볼까요?</div>', unsafe_allow_html=True)
@@ -153,7 +153,6 @@ st.markdown('''
     </div>
 ''', unsafe_allow_html=True)
 
-# 이미지 1의 AI 요약 내용을 이미지 2의 세련된 디자인으로 통합
 st.markdown('<div class="section-header" style="margin-top:20px;">AI COMPLAINT ANALYSIS</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">주요 컴플레인 AI 요약 (최다 발생 유형)</div>', unsafe_allow_html=True)
 
@@ -174,7 +173,7 @@ st.markdown("""
 
 
 # ==========================================
-# 6. 다차원 탐색 (가로 바 차트 2행 3열 그리드 - 이미지 1,2 통합)
+# 6. 다차원 탐색 (가로 바 차트 2행 3열 그리드)
 # ==========================================
 def draw_horizontal_bar(df, x_col, y_col):
     fig = px.bar(df, x=x_col, y=y_col, orientation='h', text=x_col)
@@ -184,7 +183,6 @@ def draw_horizontal_bar(df, x_col, y_col):
                       yaxis=dict(showgrid=False, title=None, categoryorder='total ascending', tickfont=dict(color='#5D6D7E', size=11)))
     return fig
 
-# 첫 번째 행: 증상, 차종, 타이어 모델 (이미지 1+2)
 col_b1, col_b2, col_b3 = st.columns(3)
 with col_b1:
     st.markdown('<div class="section-header">SYMPTOM EXPLORER</div><div class="section-title">주요 결함-증상</div>', unsafe_allow_html=True)
@@ -199,7 +197,6 @@ with col_b3:
     mod_df = pd.DataFrame({'Item': ['N Priz AH8', 'Roadian HTX', 'N Fera AU7', 'Aria AH7', 'Winguard'][::-1], 'Count': [32, 18, 14, 9, 7][::-1]})
     st.plotly_chart(draw_horizontal_bar(mod_df, 'Count', 'Item'), use_container_width=True)
 
-# 두 번째 행: 규격, 발생지역, 속도 (이미지 1 상세 내용)
 col_c1, col_c2, col_c3 = st.columns(3)
 with col_c1:
     st.markdown('<div class="section-header">SIZE EXPLORER</div><div class="section-title">주요 규격 분포</div>', unsafe_allow_html=True)
@@ -216,7 +213,7 @@ with col_c3:
 
 
 # ==========================================
-# 7. 글로벌 경쟁사 상세 비교 (이미지 1 표 데이터 편입)
+# 7. 글로벌 경쟁사 상세 비교
 # ==========================================
 st.markdown('<div class="section-header">DEEP DIVE: COMPETITOR ANALYSIS</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">글로벌 4대 브랜드 상세 정량 비교</div>', unsafe_allow_html=True)
@@ -229,7 +226,6 @@ compare_data = pd.DataFrame({
     'MICHELIN': ['2,168건', '1.2%', 'Rapid Wear', '5건', '우수 (A)']
 })
 
-# 표를 HTML로 렌더링하여 스타일 적용
 html_table = compare_data.to_html(classes='custom-table', index=False, border=0)
 st.markdown(html_table, unsafe_allow_html=True)
 
