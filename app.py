@@ -52,14 +52,13 @@ st.markdown("""
 
 
 # ==========================================
-# 2. 동적 데이터 생성 (실제 데이터 로드로 대체 가능)
+# 2. 동적 데이터 생성 (AI 요약용 원문 텍스트 추가)
 # ==========================================
 @st.cache_data
 def load_nhtsa_data():
     np.random.seed(42)
     n_records = 3000
     
-    # 2020년부터 현재까지의 가상 데이터 생성
     dates = pd.to_datetime(np.random.choice(pd.date_range('2020-01-01', '2026-09-08'), n_records))
     brands = np.random.choice(['NEXEN', 'HANKOOK', 'KUMHO', 'MICHELIN', 'OTHER'], n_records, p=[0.15, 0.25, 0.2, 0.3, 0.1])
     symptoms = np.random.choice(['트레드 분리', '진동-밸런스', '파열 Blowout', '변형-부풀음', '균열 Cracking'], n_records)
@@ -68,7 +67,10 @@ def load_nhtsa_data():
     sizes = np.random.choice(['225/55R17', '235/45R18', '245/40R19', '215/55R17', '275/40R20'], n_records)
     states = np.random.choice(['CA (캘리포니아)', 'TX (텍사스)', 'FL (플로리다)', 'NY (뉴욕)', 'PA (펜실베니아)'], n_records)
     speeds = np.random.choice(['60-70 mph', '70-80 mph', '50-60 mph', 'Under 50 mph', 'Over 80 mph'], n_records)
-    crashes = np.random.choice([0, 1], n_records, p=[0.97, 0.03]) # 3% 사고율
+    crashes = np.random.choice([0, 1], n_records, p=[0.97, 0.03])
+    
+    # 동적 신고 텍스트 생성
+    texts = [f"{state}에서 {speed} 속도로 주행 중 {symptom} 현상이 발생했습니다. 대상 차량은 {vehicle}({model}, 규격: {size})이며, 타이어 점검 및 교체가 필요했습니다." for state, speed, symptom, vehicle, model, size in zip(states, speeds, symptoms, vehicles, models, sizes)]
     
     df = pd.DataFrame({
         'Date': dates,
@@ -80,7 +82,8 @@ def load_nhtsa_data():
         'Size': sizes,
         'State': states,
         'Speed': speeds,
-        'Crash': crashes
+        'Crash': crashes,
+        'Complaint_Text': texts
     })
     return df
 
@@ -98,7 +101,6 @@ with st.sidebar:
     col_btn2.button("전체 브랜드", use_container_width=True)
     
     with st.form("filter_form"):
-        # 동적 필터
         selected_brand = st.selectbox("타이어 브랜드", ["전체", "NEXEN", "HANKOOK", "KUMHO", "MICHELIN"], index=1)
         st.selectbox("브랜드 판별 근거", ["등록 브랜드 + 원문 언급"])
         
@@ -114,44 +116,62 @@ with st.sidebar:
 # ==========================================
 # 4. 데이터 필터링 로직 적용
 # ==========================================
-# 날짜 필터 적용
 mask = (df_base['Date'].dt.date >= start_date) & (df_base['Date'].dt.date <= end_date)
-
-# 브랜드 필터 적용
 if selected_brand != "전체":
     mask &= (df_base['Brand'] == selected_brand)
 
 df_filtered = df_base[mask]
 
-# 필터 결과에 데이터가 없는 경우 처리
 if df_filtered.empty:
     st.warning("선택한 조건에 해당하는 데이터가 없습니다. 필터를 변경해주세요.")
     st.stop()
 
+
 # ==========================================
-# 5. 동적 KPI 계산
+# 5. 동적 수치 계산 (KPI, 신호 감지 등)
 # ==========================================
 total_complaints = len(df_filtered)
-
-# 최근 180일 필터
 recent_180_date = end_date - timedelta(days=180)
 recent_180_count = len(df_filtered[df_filtered['Date'].dt.date >= recent_180_date])
-
-# 사고 동반 신고 건수
 crash_count = df_filtered['Crash'].sum()
-
-# 고유 차종 수
 unique_vehicles = df_filtered['Vehicle'].nunique()
 
-# 가장 많이 발생한 증상 및 차종 (QA Brief용)
-top_symptom = df_filtered['Symptom'].value_counts().idxmax() if not df_filtered.empty else "없음"
-top_symptom_cnt = df_filtered['Symptom'].value_counts().max() if not df_filtered.empty else 0
-top_vehicle = df_filtered['Vehicle'].value_counts().idxmax() if not df_filtered.empty else "없음"
-top_vehicle_cnt = df_filtered['Vehicle'].value_counts().max() if not df_filtered.empty else 0
+top_symptom = df_filtered['Symptom'].value_counts().idxmax()
+top_symptom_cnt = df_filtered['Symptom'].value_counts().max()
+top_vehicle = df_filtered['Vehicle'].value_counts().idxmax()
+top_vehicle_cnt = df_filtered['Vehicle'].value_counts().max()
+
+# --- 동적 신호 감지(Signal) 로직 ---
+p2_start = end_date - timedelta(days=180)
+p1_start = p2_start - timedelta(days=180)
+
+df_p2 = df_filtered[(df_filtered['Date'].dt.date >= p2_start) & (df_filtered['Date'].dt.date <= end_date)]
+df_p1 = df_filtered[(df_filtered['Date'].dt.date >= p1_start) & (df_filtered['Date'].dt.date < p2_start)]
+
+if not df_p2.empty:
+    sig_symptom = df_p2['Symptom'].value_counts().idxmax()
+    sig_p2_count = df_p2['Symptom'].value_counts().max()
+    sig_p1_count = len(df_p1[df_p1['Symptom'] == sig_symptom]) if not df_p1.empty else 0
+    
+    if sig_p2_count > sig_p1_count:
+        sig_badge = "증가 ↗"
+        sig_color = "#D35400"
+        sig_border = "#E59866"
+    else:
+        sig_badge = "유지/감소 ↘"
+        sig_color = "#2E86C1"
+        sig_border = "#85C1E9"
+else:
+    sig_symptom = "특이 신호 없음"
+    sig_p2_count = 0
+    sig_p1_count = 0
+    sig_badge = "-"
+    sig_color = "#7F8C8D"
+    sig_border = "#BDC3C7"
 
 
 # ==========================================
-# 6. 메인 헤더 및 KPI 영역 렌더링
+# 6. 화면 렌더링: 메인 헤더 & KPI
 # ==========================================
 st.markdown('<div class="top-category">NHTSA / TIRE QUALITY MONITOR</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-title">작은 신호에서, 품질의 다음을.</div>', unsafe_allow_html=True)
@@ -177,7 +197,7 @@ with col_kpi4:
 
 
 # ==========================================
-# 7. 트렌드 차트 & QA Brief
+# 7. 화면 렌더링: 트렌드 차트 & QA Brief
 # ==========================================
 col_mid1, col_mid2 = st.columns([2.3, 1])
 
@@ -185,9 +205,7 @@ with col_mid1:
     st.markdown('<div class="section-header">COMPLAINT TREND</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-title">신고 건수 추이 (연도별)</div>', unsafe_allow_html=True)
     
-    # 동적 트렌드 데이터 생성
     trend_data = df_filtered.groupby('Year').size().reset_index(name='Count')
-    
     fig_trend = px.bar(trend_data, x='Year', y='Count', text='Count')
     fig_trend.update_traces(marker_color='#719A7E', width=0.4, textposition='outside', textfont=dict(color='gray'))
     fig_trend.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', height=320, margin=dict(l=0, r=0, t=20, b=0), xaxis_title=None, yaxis_title=None, yaxis=dict(showgrid=True, gridcolor='#F2F3F4'), xaxis=dict(showgrid=False))
@@ -210,44 +228,45 @@ with col_mid2:
 
 
 # ==========================================
-# 8. 신호 감지 & AI 원문 요약 
+# 8. 화면 렌더링: 동적 신호 감지 & AI 원문 요약
 # ==========================================
 st.markdown('<div class="section-header">FROM PATTERNS TO QUESTIONS</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">어떤 신호를 먼저 살펴볼까요?</div>', unsafe_allow_html=True)
 
-st.markdown('''
+st.markdown(f'''
     <div class="signal-box">
         <div class="signal-icon">📈</div>
         <div>
-            <div style="font-weight: bold; color: #9C640C; font-size: 15px;">균열-드라이 로트 - 증가 후보 <span style="border: 1px solid #E59866; color: #D35400; font-size: 11px; padding: 2px 8px; border-radius: 12px; margin-left: 10px;">신규 ↗</span></div>
-            <div style="color: #A6ACAF; font-size: 12px; margin-top: 5px;">최근 180일 통계적 이상 패턴 탐지됨</div>
+            <div style="font-weight: bold; color: #9C640C; font-size: 15px;">{sig_symptom} - 주의 모니터링 <span style="border: 1px solid {sig_border}; color: {sig_color}; font-size: 11px; padding: 2px 8px; border-radius: 12px; margin-left: 10px;">{sig_badge}</span></div>
+            <div style="color: #A6ACAF; font-size: 12px; margin-top: 5px;">최근 180일 {sig_p2_count}건 / 이전 180일 {sig_p1_count}건</div>
         </div>
     </div>
 ''', unsafe_allow_html=True)
 
 st.markdown('<div class="section-header" style="margin-top:20px;">AI COMPLAINT ANALYSIS</div>', unsafe_allow_html=True)
-st.markdown('<div class="section-title">주요 컴플레인 AI 요약 (최다 발생 유형)</div>', unsafe_allow_html=True)
-st.markdown("""
-<div class="ai-summary-card">
-    <div class="ai-summary-title">사례 1. 고속도로 주행 중 트레드 분리 (Tread Separation) 현상</div>
-    <div class="ai-summary-text">캘리포니아주 고속도로를 70mph로 주행하던 중 조수석 뒷바퀴에서 심각한 진동과 함께 소음이 발생. 갓길 확인 결과, 타이어 트레드가 완전히 벗겨져 철심이 노출된 상태였음.</div>
-</div>
-<div class="ai-summary-card">
-    <div class="ai-summary-title">사례 2. 원인 불명의 사이드월 파열 (Sidewall Blowout)</div>
-    <div class="ai-summary-text">텍사스에서 60mph로 정속 주행 중 우측 앞바퀴 사이드월이 갑자기 파열됨. 공기압 경고등(TPMS) 점등 직후 발생하였으며, 타이어 마일리지는 약 15,000 마일 수준.</div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown('<div class="section-title">주요 컴플레인 AI 요약 (최근 발생 사례)</div>', unsafe_allow_html=True)
+
+# 최근 발생한 2개의 불만사항 동적 생성
+recent_complaints = df_filtered.sort_values(by='Date', ascending=False).head(2)
+
+ai_html = ""
+for idx, (_, row) in enumerate(recent_complaints.iterrows()):
+    ai_html += f"""
+    <div class="ai-summary-card">
+        <div class="ai-summary-title">사례 {idx+1}. {row['State']} - {row['Symptom']} 현상 ({row['Date'].strftime('%Y-%m-%d')})</div>
+        <div class="ai-summary-text">{row['Complaint_Text']}</div>
+    </div>
+    """
+st.markdown(ai_html, unsafe_allow_html=True)
 
 
 # ==========================================
-# 9. 다차원 탐색 (가로 바 차트 동적 생성 함수)
+# 9. 화면 렌더링: 다차원 탐색 (가로 바 차트)
 # ==========================================
-def draw_horizontal_bar(df_col, title):
-    # 컬럼 데이터 빈도수 계산 후 상위 5개 추출 (차트 표현을 위해 역순 정렬)
+def draw_horizontal_bar(df_col):
     data = df_col.value_counts().head(5).reset_index()
     data.columns = ['Item', 'Count']
     data = data.sort_values('Count', ascending=True)
-    
     fig = px.bar(data, x='Count', y='Item', orientation='h', text='Item')
     fig.update_traces(marker_color='#719A7E', width=0.2, textposition='outside', textfont=dict(color='#2C3E50', size=11))
     fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(l=0, r=20, t=10, b=0),
@@ -255,28 +274,26 @@ def draw_horizontal_bar(df_col, title):
                       yaxis=dict(showgrid=False, title=None, categoryorder='total ascending', tickfont=dict(color='#5D6D7E', size=11)))
     return fig
 
-# 첫 번째 행 차트 렌더링
 col_b1, col_b2, col_b3 = st.columns(3)
 with col_b1:
     st.markdown('<div class="section-header">SYMPTOM EXPLORER</div><div class="section-title">주요 결함-증상</div>', unsafe_allow_html=True)
-    st.plotly_chart(draw_horizontal_bar(df_filtered['Symptom'], '주요 결함-증상'), use_container_width=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['Symptom']), use_container_width=True)
 with col_b2:
     st.markdown('<div class="section-header">VEHICLE EXPLORER</div><div class="section-title">차종별 분포</div>', unsafe_allow_html=True)
-    st.plotly_chart(draw_horizontal_bar(df_filtered['Vehicle'], '차종별 분포'), use_container_width=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['Vehicle']), use_container_width=True)
 with col_b3:
     st.markdown('<div class="section-header">MODEL EXPLORER</div><div class="section-title">타이어 모델 분포</div>', unsafe_allow_html=True)
-    st.plotly_chart(draw_horizontal_bar(df_filtered['Model'], '타이어 모델 분포'), use_container_width=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['Model']), use_container_width=True)
 
-# 두 번째 행 차트 렌더링
 col_c1, col_c2, col_c3 = st.columns(3)
 with col_c1:
     st.markdown('<div class="section-header">SIZE EXPLORER</div><div class="section-title">주요 규격 분포</div>', unsafe_allow_html=True)
-    st.plotly_chart(draw_horizontal_bar(df_filtered['Size'], '주요 규격 분포'), use_container_width=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['Size']), use_container_width=True)
 with col_c2:
     st.markdown('<div class="section-header">STATE EXPLORER</div><div class="section-title">발생 지역(State)</div>', unsafe_allow_html=True)
-    st.plotly_chart(draw_horizontal_bar(df_filtered['State'], '발생 지역'), use_container_width=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['State']), use_container_width=True)
 with col_c3:
     st.markdown('<div class="section-header">SPEED EXPLORER</div><div class="section-title">주행 속도</div>', unsafe_allow_html=True)
-    st.plotly_chart(draw_horizontal_bar(df_filtered['Speed'], '주행 속도'), use_container_width=True)
+    st.plotly_chart(draw_horizontal_bar(df_filtered['Speed']), use_container_width=True)
 
 st.markdown("<br><div style='text-align:center; font-size:11px; color:#A6ACAF;'>신고 건수는 판매량·장착 대수로 보정된 불량률이 아닙니다. 타이어의 결함이나 사고 원인을 확정하지 않습니다.</div>", unsafe_allow_html=True)
