@@ -45,8 +45,8 @@ st.markdown("""
     .ai-summary-title { font-weight: 700; color: #1A362D; margin-bottom: 5px; font-size: 14px; }
     .ai-summary-text { font-size: 13px; color: #5D6D7E; line-height: 1.5; }
     
-    .custom-table th { background-color: #1A362D !important; color: white !important; font-weight: normal; text-align: center; }
-    .custom-table td { text-align: center; color: #2C3E50; font-size: 14px; }
+    /* 초기화 버튼 스타일 조정 */
+    div[data-testid="stButton"] button { padding: 4px 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -57,7 +57,6 @@ st.markdown("""
 def load_nhtsa_data():
     np.random.seed(42)
     n_records = 3000
-    
     dates = pd.to_datetime(np.random.choice(pd.date_range('2020-01-01', '2026-09-08'), n_records))
     brands = np.random.choice(['NEXEN', 'HANKOOK', 'KUMHO', 'MICHELIN', 'OTHER'], n_records, p=[0.15, 0.25, 0.2, 0.3, 0.1])
     symptoms = np.random.choice(['트레드 분리', '진동-밸런스', '파열 Blowout', '변형-부풀음', '균열 Cracking'], n_records)
@@ -88,40 +87,72 @@ def load_nhtsa_data():
 df_base = load_nhtsa_data()
 
 # ==========================================
-# 3. 사이드바 (탐색 필터 + 일괄 적용 폼)
+# 3. Session State 초기화 및 콜백 함수 정의
+# ==========================================
+if 'filter_brand' not in st.session_state:
+    st.session_state.filter_brand = "NEXEN"
+if 'filter_start_date' not in st.session_state:
+    st.session_state.filter_start_date = date(2020, 1, 1)
+if 'filter_end_date' not in st.session_state:
+    st.session_state.filter_end_date = date(2026, 9, 8)
+
+def reset_filters():
+    st.session_state.filter_brand = "NEXEN"
+    st.session_state.filter_start_date = date(2020, 1, 1)
+    st.session_state.filter_end_date = date(2026, 9, 8)
+
+def set_nexen_focus():
+    st.session_state.filter_brand = "NEXEN"
+
+def set_all_brands():
+    st.session_state.filter_brand = "전체"
+
+# ==========================================
+# 4. 사이드바 구성
 # ==========================================
 with st.sidebar:
-    st.markdown("**탐색 필터** <span style='float:right; font-size:12px; color:gray; cursor:pointer;'>초기화</span>", unsafe_allow_html=True)
+    col_hdr1, col_hdr2 = st.columns([3, 1])
+    col_hdr1.markdown("**탐색 필터**")
+    col_hdr2.button("초기화", on_click=reset_filters, use_container_width=True)
     st.markdown("---")
+    
     col_btn1, col_btn2 = st.columns(2)
-    col_btn1.button("NEXEN 중심", use_container_width=True)
-    col_btn2.button("전체 브랜드", use_container_width=True)
+    col_btn1.button("NEXEN 중심", on_click=set_nexen_focus, use_container_width=True)
+    col_btn2.button("전체 브랜드", on_click=set_all_brands, use_container_width=True)
     
     with st.form("filter_form"):
-        selected_brand = st.selectbox("타이어 브랜드", ["전체", "NEXEN", "HANKOOK", "KUMHO", "MICHELIN"], index=1)
+        brand_options = ["전체", "NEXEN", "HANKOOK", "KUMHO", "MICHELIN"]
+        current_brand_index = brand_options.index(st.session_state.filter_brand) if st.session_state.filter_brand in brand_options else 1
+        
+        sel_brand = st.selectbox("타이어 브랜드", brand_options, index=current_brand_index)
         st.selectbox("브랜드 판별 근거", ["등록 브랜드 + 원문 언급"])
         
         st.markdown("---")
         st.markdown("**기간 기준**")
-        start_date = st.date_input("시작일", value=date(2020, 1, 1))
-        end_date = st.date_input("종료일", value=date(2026, 9, 8))
+        sel_start = st.date_input("시작일", value=st.session_state.filter_start_date)
+        sel_end = st.date_input("종료일", value=st.session_state.filter_end_date)
         
         st.markdown("---")
         submit_btn = st.form_submit_button("필터 적용하기", type="primary", use_container_width=True)
+        
+        if submit_btn:
+            # 폼 제출 시 Session State 업데이트
+            st.session_state.filter_brand = sel_brand
+            st.session_state.filter_start_date = sel_start
+            st.session_state.filter_end_date = sel_end
 
 # ==========================================
-# 4. 데이터 필터링 로직 적용
+# 5. 데이터 필터링 적용 (Session State 값 기준)
 # ==========================================
-# 메인 대시보드용 필터 (선택한 브랜드 및 기간 반영)
-mask = (df_base['Date'].dt.date >= start_date) & (df_base['Date'].dt.date <= end_date)
-if selected_brand != "전체":
-    mask &= (df_base['Brand'] == selected_brand)
+mask = (df_base['Date'].dt.date >= st.session_state.filter_start_date) & (df_base['Date'].dt.date <= st.session_state.filter_end_date)
+if st.session_state.filter_brand != "전체":
+    mask &= (df_base['Brand'] == st.session_state.filter_brand)
 
 df_filtered = df_base[mask]
 
-# 신호 감지 및 AI 요약용 전용 필터 (기간은 반영하되, 브랜드는 무조건 NEXEN으로 고정)
-df_nexen = df_base[(df_base['Date'].dt.date >= start_date) & 
-                   (df_base['Date'].dt.date <= end_date) & 
+# 신호 감지 및 AI 요약용 전용 필터 (기간은 반영하되, 브랜드는 NEXEN 고정)
+df_nexen = df_base[(df_base['Date'].dt.date >= st.session_state.filter_start_date) & 
+                   (df_base['Date'].dt.date <= st.session_state.filter_end_date) & 
                    (df_base['Brand'] == 'NEXEN')]
 
 if df_filtered.empty:
@@ -129,10 +160,10 @@ if df_filtered.empty:
     st.stop()
 
 # ==========================================
-# 5. 동적 수치 계산
+# 6. 동적 수치 계산
 # ==========================================
 total_complaints = len(df_filtered)
-recent_180_date = end_date - timedelta(days=180)
+recent_180_date = st.session_state.filter_end_date - timedelta(days=180)
 recent_180_count = len(df_filtered[df_filtered['Date'].dt.date >= recent_180_date])
 crash_count = df_filtered['Crash'].sum()
 unique_vehicles = df_filtered['Vehicle'].nunique()
@@ -143,10 +174,10 @@ top_vehicle = df_filtered['Vehicle'].value_counts().idxmax()
 top_vehicle_cnt = df_filtered['Vehicle'].value_counts().max()
 
 # --- NEXEN 전용 신호 감지(Signal) 로직 ---
-p2_start = end_date - timedelta(days=180)
+p2_start = st.session_state.filter_end_date - timedelta(days=180)
 p1_start = p2_start - timedelta(days=180)
 
-df_nexen_p2 = df_base[(df_base['Date'].dt.date >= p2_start) & (df_base['Date'].dt.date <= end_date) & (df_base['Brand'] == 'NEXEN')]
+df_nexen_p2 = df_base[(df_base['Date'].dt.date >= p2_start) & (df_base['Date'].dt.date <= st.session_state.filter_end_date) & (df_base['Brand'] == 'NEXEN')]
 df_nexen_p1 = df_base[(df_base['Date'].dt.date >= p1_start) & (df_base['Date'].dt.date < p2_start) & (df_base['Brand'] == 'NEXEN')]
 
 if not df_nexen_p2.empty:
@@ -171,7 +202,7 @@ else:
     sig_border = "#BDC3C7"
 
 # ==========================================
-# 6. 화면 렌더링: 메인 헤더 & KPI
+# 7. 화면 렌더링: 메인 헤더 & KPI
 # ==========================================
 st.markdown('<div class="top-category">NHTSA / TIRE QUALITY MONITOR</div>', unsafe_allow_html=True)
 st.markdown('<div class="main-title">작은 신호에서, 품질의 다음을.</div>', unsafe_allow_html=True)
@@ -179,12 +210,12 @@ st.markdown('<div class="sub-title">타이어 관련 신고를 연결하고, 확
 st.markdown(f'''
     <div class="badge-container">
         <span class="status-badge">● 공식 데이터 확보</span>
-        <span class="filter-badge">조회 시작 {start_date}</span>
-        <span class="filter-badge">조회 종료 {end_date}</span>
+        <span class="filter-badge">조회 시작 {st.session_state.filter_start_date}</span>
+        <span class="filter-badge">조회 종료 {st.session_state.filter_end_date}</span>
     </div>
 ''', unsafe_allow_html=True)
 
-st.markdown(f'<div class="section-title">{selected_brand} 모니터링</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="section-title">{st.session_state.filter_brand} 모니터링</div>', unsafe_allow_html=True)
 col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
 with col_kpi1:
     st.markdown(f'<div class="kpi-card"><div class="kpi-title">필터에 해당하는 신고 📄</div><div class="kpi-value">{total_complaints:,}</div><div class="kpi-desc">ODI 신고번호 기준 - 중복 제거</div></div>', unsafe_allow_html=True)
@@ -196,7 +227,7 @@ with col_kpi4:
     st.markdown(f'<div class="kpi-card"><div class="kpi-title">등록 차종 🚗</div><div class="kpi-value">{unique_vehicles:,}</div><div class="kpi-desc">영향을 받은 고유 차종 수</div></div>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. 화면 렌더링: 트렌드 차트 & QA Brief
+# 8. 화면 렌더링: 트렌드 차트 & QA Brief
 # ==========================================
 col_mid1, col_mid2 = st.columns([2.3, 1])
 
@@ -217,7 +248,7 @@ with col_mid2:
             <div class="qa-title">✨ YOUR QA BRIEF</div>
             <div class="qa-main-text">현재 필터 요약</div>
             <div class="qa-content">
-                {selected_brand} 관련 신고 <span class="qa-highlight">{total_complaints:,}건</span>이 현재 조건에 해당합니다.<br><br>
+                {st.session_state.filter_brand} 관련 신고 <span class="qa-highlight">{total_complaints:,}건</span>이 현재 조건에 해당합니다.<br><br>
                 가장 많이 포착된 증상은 <span class="qa-highlight">{top_symptom} ({top_symptom_cnt}건)</span>입니다.<br><br>
                 등록 차종 중 <span class="qa-highlight">{top_vehicle} ({top_vehicle_cnt}건)</span>이 가장 많습니다.
             </div>
@@ -226,7 +257,7 @@ with col_mid2:
     ''', unsafe_allow_html=True)
 
 # ==========================================
-# 8. 화면 렌더링: NEXEN 전용 신호 감지 & AI 원문 요약
+# 9. 화면 렌더링: NEXEN 전용 신호 감지 & AI 원문 요약
 # ==========================================
 st.markdown('<div class="section-header">FROM PATTERNS TO QUESTIONS (NEXEN ONLY)</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">NEXEN: 어떤 신호를 먼저 살펴볼까요?</div>', unsafe_allow_html=True)
@@ -259,7 +290,7 @@ else:
     st.info("해당 조회 기간에 NEXEN 브랜드의 신고 내역이 없습니다.")
 
 # ==========================================
-# 9. 화면 렌더링: 다차원 탐색 (가로 바 차트)
+# 10. 화면 렌더링: 다차원 탐색 (가로 바 차트)
 # ==========================================
 def draw_horizontal_bar(df_col):
     data = df_col.value_counts().head(5).reset_index()
