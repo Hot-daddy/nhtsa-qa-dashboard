@@ -4,7 +4,6 @@ import numpy as np
 import plotly.express as px
 from datetime import date, timedelta
 import requests
-import io
 
 # ==========================================
 # 1. 페이지 설정 및 통합 커스텀 CSS
@@ -71,13 +70,13 @@ def render_list_card(title, meta_list, text, url_info=None):
         st.code(url_info['url'], language="text")
 
 # ==========================================
-# 3. 데이터 로딩 (가상 소비자 컴플레인 + 100% 실제 NHTSA 리콜 API 우회 접속)
+# 3. 데이터 로딩 (가상 소비자 컴플레인 + 안전장치 추가된 실시간 리콜)
 # ==========================================
 DATA_MIN_DATE, DATA_MAX_DATE = date(2013, 1, 1), date(2026, 9, 8)
 
 @st.cache_data
 def load_nhtsa_complaints():
-    # 소비자 불만(Complaints) 시연을 위한 데이터
+    # 소비자 불만 시연용 기본 데이터
     np.random.seed(42)
     n_records = 5000
     dates = pd.to_datetime(np.random.choice(pd.date_range('2013-01-01', '2026-09-08'), n_records))
@@ -106,68 +105,76 @@ def load_nhtsa_complaints():
 
 @st.cache_data(ttl=3600)
 def load_real_nhtsa_recalls():
-    """웹 브라우저로 위장하여 NHTSA 서버의 보안 차단을 우회하고 CSV를 메모리로 파싱합니다."""
-    url = "https://data.transportation.gov/resource/mu99-t4jn.csv?$limit=50000"
+    """서버 방화벽 차단 시 앱 크래시를 방지하기 위해 응답을 철저히 검증합니다."""
+    # JSON API 통신: 방화벽에 막히면 JSON이 아닌 HTML이 돌아옵니다.
+    url = "https://datahub.transportation.gov/resource/mu99-t4jn.json?$limit=50000"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0",
+        "Accept": "application/json"
     }
+    
     try:
-        # 1. requests를 사용해 안전하게 다운로드
         res = requests.get(url, headers=headers, timeout=20)
         
-        if res.status_code == 200:
-            # 2. 다운로드된 텍스트를 Pandas가 읽을 수 있도록 변환
-            df = pd.read_csv(io.StringIO(res.text))
-            
-            if df.empty:
-                return pd.DataFrame()
-                
-            # 컬럼 이름 표준화
-            df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
-            
-            # 타이어 리콜만 필터링
-            if 'recall_type' in df.columns:
-                df = df[df['recall_type'].astype(str).str.upper().str.contains('TIRE', na=False)]
-            elif 'component' in df.columns:
-                df = df[df['component'].astype(str).str.upper().str.contains('TIRE', na=False)]
-                
-            # 날짜 컬럼 찾기
-            date_col = next((c for c in ['report_received_date', 'received_date', 'report_date', 'date'] if c in df.columns), None)
-            
-            if date_col:
-                # Timestamp 형식으로 변환하여 비교 시 에러 차단
-                df['Report_Received_Date'] = pd.to_datetime(df[date_col], errors='coerce')
-                df['Year'] = df['Report_Received_Date'].dt.year
-            else:
-                df['Report_Received_Date'] = pd.NaT
-                df['Year'] = None
-                
-            # 대시보드 출력용 컬럼 매핑
-            col_mapping = {}
-            for c in df.columns:
-                if 'manufacturer' in c: col_mapping[c] = 'Manufacturer'
-                elif 'component' in c: col_mapping[c] = 'Component'
-                elif 'campaign' in c or 'nhtsa_id' in c: col_mapping[c] = 'Campaign_Number'
-                elif 'subject' in c: col_mapping[c] = 'Subject'
-                elif 'summary' in c: col_mapping[c] = 'Summary'
-                
-            df.rename(columns=col_mapping, inplace=True)
-            
-            # 결측치 빈 값 처리
-            for req in ['Manufacturer', 'Component', 'Campaign_Number', 'Subject', 'Summary']:
-                if req not in df.columns:
-                    df[req] = "N/A"
-                    
-            df['Summary'] = df['Summary'].fillna("상세 내용 없음")
-            df['Subject'] = df['Subject'].fillna("제목 없음")
-            
-            return df
-        else:
-            st.error(f"API 서버 접속 오류 (Code: {res.status_code})")
+        # 1. 상태 코드가 정상이 아닌 경우 방어
+        if res.status_code != 200:
+            st.warning(f"🚨 NHTSA 서버 접속 차단됨 (Status: {res.status_code}). 클라우드 IP 제한일 수 있습니다.")
             return pd.DataFrame()
             
+        # 2. 반환된 콘텐츠가 JSON이 아닌 HTML(차단 페이지)일 경우 에러 방지
+        content_type = res.headers.get('Content-Type', '').lower()
+        if 'json' not in content_type:
+            st.warning("🚨 데이터 허브 방화벽이 차단 페이지(HTML)를 반환했습니다. 로컬 PC에서 실행하면 정상 연결됩니다.")
+            return pd.DataFrame()
+            
+        data = res.json()
+        if not data:
+            return pd.DataFrame()
+            
+        df = pd.DataFrame(data)
+        
+        # 컬럼 이름 표준화 (소문자 및 띄어쓰기 치환)
+        df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
+        
+        # 타이어 리콜만 필터링
+        if 'recall_type' in df.columns:
+            df = df[df['recall_type'].astype(str).str.upper().str.contains('TIRE', na=False)]
+        elif 'component' in df.columns:
+            df = df[df['component'].astype(str).str.upper().str.contains('TIRE', na=False)]
+            
+        # 날짜 컬럼 찾기 (오류 방지 핵심 로직)
+        date_col = next((c for c in ['report_received_date', 'received_date', 'report_date', 'date'] if c in df.columns), None)
+        
+        if date_col:
+            df['Report_Received_Date'] = pd.to_datetime(df[date_col], errors='coerce')
+            df['Year'] = df['Report_Received_Date'].dt.year
+        else:
+            df['Report_Received_Date'] = pd.NaT
+            df['Year'] = None
+            
+        # 대시보드 출력용 컬럼 매핑
+        col_mapping = {}
+        for c in df.columns:
+            if 'manufacturer' in c: col_mapping[c] = 'Manufacturer'
+            elif 'component' in c: col_mapping[c] = 'Component'
+            elif 'campaign' in c or 'nhtsa_id' in c: col_mapping[c] = 'Campaign_Number'
+            elif 'subject' in c: col_mapping[c] = 'Subject'
+            elif 'summary' in c: col_mapping[c] = 'Summary'
+            
+        df.rename(columns=col_mapping, inplace=True)
+        
+        # 결측치 방어
+        for req in ['Manufacturer', 'Component', 'Campaign_Number', 'Subject', 'Summary']:
+            if req not in df.columns:
+                df[req] = "N/A"
+                
+        df['Summary'] = df['Summary'].fillna("상세 내용 없음")
+        df['Subject'] = df['Subject'].fillna("제목 없음")
+        
+        return df
+        
     except Exception as e:
-        st.error(f"네트워크 및 파싱 오류가 발생했습니다. (Error: {e})")
+        st.warning(f"🚨 NHTSA 데이터 통신 지연 또는 오류 발생 ({str(e)[:50]}...)")
         return pd.DataFrame()
 
 df_comp = load_nhtsa_complaints()
@@ -234,16 +241,13 @@ if crash_option == "사고 동반건만 보기": mask_comp &= (df_comp['Crash'] 
 
 df_filtered = df_comp[mask_comp]
 
-# 리콜 데이터 필터링 (NaT Type Error 완벽 방지)
+# 리콜 데이터 필터링
 df_recalls_filtered = pd.DataFrame()
 if not df_recall.empty and 'Report_Received_Date' in df_recall.columns:
-    # dt.date 변환을 생략하고 Timestamp 객체로 직접 비교하여 NaT 에러 우회
     mask_recall = (df_recall['Report_Received_Date'] >= filter_start_ts) & (df_recall['Report_Received_Date'] <= filter_end_ts)
-    
     if st.session_state.filter_brands and "전체" not in st.session_state.filter_brands:
         brand_conds = [df_recall['Manufacturer'].astype(str).str.upper().str.contains(b.upper(), na=False) for b in st.session_state.filter_brands]
         mask_recall &= np.logical_or.reduce(brand_conds)
-        
     df_recalls_filtered = df_recall[mask_recall]
 
 target_year = st.session_state.filter_end_date.year
