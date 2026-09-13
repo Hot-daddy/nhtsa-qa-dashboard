@@ -298,10 +298,35 @@ with col_st2:
     fig_sym.update_layout(yaxis={'categoryorder': 'total ascending'})
     st.plotly_chart(apply_chart_style(fig_sym, height=320), use_container_width=True)
 
+# 결함 증상 심층 분석 (Drill-down)
+st.markdown('<div style="padding: 15px; background-color: #FFFFFF; border: 1px solid #EAECEE; border-radius: 8px; margin-top: 10px;">', unsafe_allow_html=True)
+st.markdown('<div class="section-title" style="margin-bottom:10px;">🔎 결함 증상별 상세 패턴 분석 (Drill-down)</div>', unsafe_allow_html=True)
+
+sym_list = df_filtered['Symptom'].value_counts().index.tolist()
+selected_sym = st.selectbox("상세 패턴을 확인할 결함 증상을 선택하세요:", options=sym_list)
+
+if selected_sym:
+    sym_df = df_filtered[df_filtered['Symptom'] == selected_sym]
+    pat_sym = sym_df.groupby(['Brand', 'Model']).size().reset_index(name='Count')
+    pat_sym['Pattern'] = pat_sym['Brand'] + " " + pat_sym['Model']
+    top_pat_sym = pat_sym.sort_values(by='Count', ascending=False).head(10)
+    
+    col_sd1, col_sd2 = st.columns([1, 1.5])
+    with col_sd1:
+        fig_sd = px.bar(top_pat_sym, x='Count', y='Pattern', orientation='h', text='Count')
+        fig_sd.update_traces(marker_color='#E67E22', width=0.4, textposition='outside')
+        fig_sd.update_layout(yaxis={'categoryorder': 'total ascending'}, margin=dict(l=0, r=20, t=10, b=0))
+        st.plotly_chart(apply_chart_style(fig_sd, height=250), use_container_width=True)
+    with col_sd2:
+        st.markdown(f"**'{selected_sym}' 주요 발생 사례 (최근 5건)**")
+        for _, r in sym_df.sort_values('Date', ascending=False).head(5).iterrows():
+            st.markdown(f"<div style='font-size:13px; margin-bottom:8px; border-bottom:1px solid #eee; padding-bottom:5px;'><b>[{r['Brand']}] {r['Model']}</b> ({r['Date'].strftime('%Y-%m-%d')}, 지역: {r['State']})<br>{r['Complaint_Text']}</div>", unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
+
 # ==========================================
 # 9. NEXEN 전용 신호 감지 & AI 요약
 # ==========================================
-st.markdown('<div class="section-header">NEXEN DEEP DIVE</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header" style="margin-top: 40px;">NEXEN DEEP DIVE</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="section-title">NEXEN: {target_year}년 컴플레인 이상 신호 및 AI 분석</div>', unsafe_allow_html=True)
 
 df_nx_target = df_comp[(df_comp['Brand'] == 'NEXEN') & (df_comp['Year'] == target_year)]
@@ -337,6 +362,7 @@ if not df_nx_target.empty:
             with st.container(height=350):
                 for _, r in cases_nx.iloc[3:].iterrows(): render_ai_card(r)
 else: st.info(f"NEXEN 브랜드의 {target_year}년 데이터가 없어 분석을 생략합니다.")
+
 
 # ==========================================
 # 10. 전체 조회기간 사고/피해 동반 (Complaints) 상세 보고서
