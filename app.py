@@ -251,7 +251,7 @@ with col_m2:
     ''', unsafe_allow_html=True)
 
 # ==========================================
-# 8. 패턴 현황 (NEXEN vs 전체 분리, 내림차순 정렬) 및 지역별 현황
+# 8. 패턴 현황 (NEXEN vs 전체 분리, 내림차순 정렬) 및 지역별/키워드별 현황
 # ==========================================
 st.markdown('<div class="section-header">PATTERN & REGION EXPLORER</div><div class="section-title">타이어 모델별 상위 10개 패턴 현황</div>', unsafe_allow_html=True)
 
@@ -277,9 +277,10 @@ with col_pat2:
     fig_all.update_layout(yaxis={'categoryorder': 'total ascending'})
     st.plotly_chart(apply_chart_style(fig_all, height=320), use_container_width=True)
 
-st.markdown('<div class="section-title" style="margin-top:20px;">지역별 발생 현황 (State)</div>', unsafe_allow_html=True)
+
 col_st1, col_st2 = st.columns(2)
 with col_st1:
+    st.markdown('<div class="section-title" style="margin-top:20px;">지역별 발생 현황 (State)</div>', unsafe_allow_html=True)
     top_states = df_filtered['State'].value_counts().head(10).index
     state_agg = df_filtered[df_filtered['State'].isin(top_states)].groupby(['State', 'Brand']).size().reset_index(name='Count')
     state_agg = state_agg.merge(state_agg.groupby('State')['Count'].sum().reset_index(name='Total'), on='State')
@@ -287,6 +288,15 @@ with col_st1:
     if not is_multi_brand: fig_state.update_traces(marker_color='#5D6D7E')
     fig_state.update_layout(yaxis={'categoryorder': 'total ascending'})
     st.plotly_chart(apply_chart_style(fig_state, height=320), use_container_width=True)
+
+with col_st2:
+    st.markdown('<div class="section-title" style="margin-top:20px;">주요 결함·증상 키워드별 발생 현황</div>', unsafe_allow_html=True)
+    sym_agg = df_filtered.groupby(['Symptom', 'Brand']).size().reset_index(name='Count')
+    sym_agg = sym_agg.merge(sym_agg.groupby('Symptom')['Count'].sum().reset_index(name='Total'), on='Symptom')
+    fig_sym = px.bar(sym_agg, x='Count', y='Symptom', color=color_opt, orientation='h', text='Count')
+    if not is_multi_brand: fig_sym.update_traces(marker_color='#5D6D7E') 
+    fig_sym.update_layout(yaxis={'categoryorder': 'total ascending'})
+    st.plotly_chart(apply_chart_style(fig_sym, height=320), use_container_width=True)
 
 # ==========================================
 # 9. NEXEN 전용 신호 감지 & AI 요약
@@ -327,7 +337,6 @@ if not df_nx_target.empty:
             with st.container(height=350):
                 for _, r in cases_nx.iloc[3:].iterrows(): render_ai_card(r)
 else: st.info(f"NEXEN 브랜드의 {target_year}년 데이터가 없어 분석을 생략합니다.")
-
 
 # ==========================================
 # 10. 전체 조회기간 사고/피해 동반 (Complaints) 상세 보고서
