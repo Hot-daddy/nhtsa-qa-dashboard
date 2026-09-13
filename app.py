@@ -43,7 +43,6 @@ st.markdown("""
     .crash-title { font-weight: 800; color: #4A235A; font-size: 14px; margin-bottom: 8px; }
     .crash-meta { font-size: 11px; color: #5B2C6F; margin-right: 8px; background-color: #F4ECF7; padding: 3px 6px; border-radius: 4px; font-weight: 600; display: inline-block; margin-bottom: 4px;}
     .crash-text { font-size: 13px; color: #2C3E50; line-height: 1.5; margin-top: 8px; }
-    .complaint-card { background-color: #FDEDEC; padding: 18px; margin-bottom: 12px; border-radius: 4px; border: 1px solid #FADBD8; border-left: 4px solid #E74C3C; }
     .disabled-card { background-color: #EBEDEF; border: 1px dashed #BDC3C7; padding: 30px; text-align: center; border-radius: 8px; color: #7F8C8D; margin-top: 15px; }
     div[data-testid="stButton"] button { padding: 4px 10px; }
     </style>
@@ -271,12 +270,22 @@ with col_p1:
 
 with col_p2:
     st.markdown('<div style="font-weight:bold; font-size:16px; margin-bottom:10px;">[타사 포함 전체] 상위 10개 패턴</div>', unsafe_allow_html=True)
-    pat_all = df_filtered.groupby(['Brand', 'Model', 'Symptom']).size().reset_index(name='Count')
-    pat_all['Pattern'] = pat_all['Brand'] + " " + pat_all['Model'] + " (" + pat_all['Symptom'] + ")"
-    fig_all = px.bar(pat_all.nlargest(10, 'Count'), x='Count', y='Pattern', color=color_opt, orientation='h', text='Count')
-    if not is_multi_brand: fig_all.update_traces(marker_color='#5D6D7E')
-    fig_all.update_layout(yaxis={'categoryorder': 'total ascending'})
-    st.plotly_chart(apply_chart_style(fig_all, height=320), use_container_width=True)
+    
+    other_brands_selected = any(b != 'NEXEN' for b in st.session_state.filter_brands)
+    if not other_brands_selected:
+        st.markdown('''
+            <div class="disabled-card" style="padding: 100px 20px; margin-top: 0; height: 320px;">
+                <div style="margin-bottom: 10px;">💡 <b>타사 브랜드 미지정</b></div>
+                <div style="font-size: 13px;">탐색 필터에서 타사 브랜드를 추가 선택하시면<br>비교 차트가 활성화됩니다.</div>
+            </div>
+        ''', unsafe_allow_html=True)
+    else:
+        pat_all = df_filtered.groupby(['Brand', 'Model', 'Symptom']).size().reset_index(name='Count')
+        pat_all['Pattern'] = pat_all['Brand'] + " " + pat_all['Model'] + " (" + pat_all['Symptom'] + ")"
+        fig_all = px.bar(pat_all.nlargest(10, 'Count'), x='Count', y='Pattern', color=color_opt, orientation='h', text='Count')
+        if not is_multi_brand: fig_all.update_traces(marker_color='#5D6D7E')
+        fig_all.update_layout(yaxis={'categoryorder': 'total ascending'})
+        st.plotly_chart(apply_chart_style(fig_all, height=320), use_container_width=True)
 
 with col_p3:
     st.markdown('<div style="font-weight:bold; font-size:16px; margin-bottom:10px;">지역별 발생 현황 (State)</div>', unsafe_allow_html=True)
