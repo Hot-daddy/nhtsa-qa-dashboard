@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from datetime import date, timedelta
-import requests  # API 통신을 위한 requests 라이브러리 추가
+import requests
 
 # ==========================================
 # 1. 페이지 설정 및 통합 커스텀 CSS
@@ -31,12 +31,14 @@ st.markdown("""
     .qa-title { font-size: 11px; font-weight: bold; color: #A3E4D7; letter-spacing: 1px; margin-bottom: 8px; }
     .qa-main-text { font-size: 18px; font-weight: 700; margin-bottom: 15px; }
     .qa-content { font-size: 13px; line-height: 1.7; color: #E8F8F5; margin-bottom: 15px; }
-    .qa-highlight { font-weight: 700; color: #FFFFFF; border-bottom: 1px solid #A3E4D7; padding-bottom: 2px; }
     .signal-box { background-color: #FDFAF2; border: 1px solid #F6DDCC; padding: 18px; border-radius: 8px; display: flex; align-items: center; gap: 15px; margin-bottom: 10px; }
     .signal-icon { background-color: #FDEBD0; padding: 10px; border-radius: 8px; color: #D68910; }
     .ai-summary-card { background-color: #FFFFFF; padding: 15px 20px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #EAECEE; border-left: 4px solid #45B39D; }
     .ai-summary-title { font-weight: 700; color: #1A362D; margin-bottom: 5px; font-size: 14px; }
     .ai-summary-text { font-size: 13px; color: #5D6D7E; line-height: 1.5; }
+    .pl-card { background-color: #F5EEF8; border: 1px solid #EBDEF0; padding: 20px; border-radius: 8px; text-align: center; }
+    .pl-title { color: #5B2C6F; font-size: 13px; font-weight: bold; margin-bottom: 10px; }
+    .pl-value { color: #7D3C98; font-size: 32px; font-weight: 800; }
     .crash-card { background-color: #FDFEFE; padding: 18px; margin-bottom: 12px; border-radius: 4px; border: 1px solid #E5E7E9; border-left: 4px solid #8E44AD; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
     .crash-title { font-weight: 800; color: #4A235A; font-size: 14px; margin-bottom: 8px; }
     .crash-meta { font-size: 11px; color: #5B2C6F; margin-right: 8px; background-color: #F4ECF7; padding: 3px 6px; border-radius: 4px; font-weight: 600; display: inline-block; margin-bottom: 4px;}
@@ -57,20 +59,24 @@ def apply_chart_style(fig, height=300):
 def render_list_card(title, meta_list, text, url_info=None):
     meta_html = "".join([f'<span class="crash-meta">{m}</span>' for m in meta_list])
     st.markdown(f'''
-        <div class="crash-card" style="border-left: 4px solid #E74C3C;">
-            <div class="crash-title" style="color: #922B21;">{title}</div>
+        <div class="crash-card">
+            <div class="crash-title">{title}</div>
             <div>{meta_html}</div>
             <div class="crash-text"><b>상세 내용:</b> {text}</div>
         </div>
     ''', unsafe_allow_html=True)
+    if url_info:
+        st.caption(url_info['text'])
+        st.code(url_info['url'], language="text")
 
 # ==========================================
-# 3. 데이터 로딩
+# 3. 데이터 로딩 (가상 컴플레인 + NHTSA 100% 실제 리콜 API)
 # ==========================================
 DATA_MIN_DATE, DATA_MAX_DATE = date(2013, 1, 1), date(2026, 9, 8)
 
 @st.cache_data
 def load_nhtsa_complaints():
+    # 소비자 불만(Complaints) 분석 시연을 위한 데이터
     np.random.seed(42)
     n_records = 5000
     dates = pd.to_datetime(np.random.choice(pd.date_range('2013-01-01', '2026-09-08'), n_records))
@@ -99,8 +105,9 @@ def load_nhtsa_complaints():
 
 @st.cache_data(ttl=3600)
 def load_real_nhtsa_recalls():
-    # pandas read_json 오류를 피하기 위해 requests를 사용하여 안전하게 API 호출
-    url = "https://datahub.transportation.gov/resource/mu99-t4jn.json?recall_type=TIRE&$limit=50000"
+    """API 400 Bad Request 방지를 위해 URL 쿼리 파라미터를 최소화하고 Pandas를 이용해 안전하게 필터링합니다."""
+    url = "https://datahub.transportation.gov/resource/mu99-t4jn.json?$limit=50000"
+    
     try:
         response = requests.get(url, timeout=15)
         if response.status_code == 200:
@@ -110,9 +117,13 @@ def load_real_nhtsa_recalls():
                 
             df = pd.DataFrame(data)
             
-            # 컬럼명을 모두 소문자로 변환하여 일관성 유지
+            # 컬럼명을 모두 소문자로 변환
             df.columns = [str(c).strip().lower() for c in df.columns]
             
+            # Pandas를 통한 안전한 TIRE 필터링
+            if 'recall_type' in df.columns:
+                df = df[df['recall_type'].str.upper().str.contains('TIRE', na=False)]
+                
             if 'report_received_date' in df.columns:
                 df['Report_Received_Date'] = pd.to_datetime(df['report_received_date'], errors='coerce')
                 df['Year'] = df['Report_Received_Date'].dt.year
@@ -127,7 +138,6 @@ def load_real_nhtsa_recalls():
                 'summary': 'Summary'
             }, inplace=True)
             
-            # 존재하지 않을 수 있는 컬럼에 대한 기본값 처리
             for col in ['Manufacturer', 'Component', 'Campaign_Number', 'Subject', 'Summary']:
                 if col not in df.columns:
                     df[col] = "N/A"
@@ -136,12 +146,24 @@ def load_real_nhtsa_recalls():
             df['Subject'] = df['Subject'].fillna("제목 없음")
             return df
         else:
-            st.error(f"API 요청 오류: {response.status_code}")
-            return pd.DataFrame()
+            st.error(f"NHTSA 서버 오류 (Status: {response.status_code}): 데이터 로드에 실패했습니다. 임시 가상 데이터로 우회합니다.")
+            return get_fallback_recalls()
             
     except Exception as e:
-        st.error(f"NHTSA 실제 데이터 로드에 실패했습니다. (Error: {e})")
-        return pd.DataFrame()
+        st.error(f"NHTSA 서버 연결 실패 (Error: {e}). 임시 가상 데이터로 우회합니다.")
+        return get_fallback_recalls()
+
+def get_fallback_recalls():
+    """서버 다운, 방화벽 차단 등 극한 상황에서 대시보드가 터지는 것을 방지하기 위한 최후의 가상 데이터"""
+    np.random.seed(100)
+    n_recalls = 500
+    dates = pd.to_datetime(np.random.choice(pd.date_range('2013-01-01', '2026-09-08'), n_recalls))
+    brands = np.random.choice(['NEXEN TIRE AMERICA INC', 'HANKOOK TIRE', 'KUMHO TIRE USA', 'MICHELIN NORTH AMERICA', 'GOODYEAR TIRE', 'CONTINENTAL TIRE'], n_recalls)
+    components = np.random.choice(['TIRES:TREAD/BELT', 'TIRES:SIDEWALL', 'TIRES:VALVE', 'TIRES:PRESSURE MONITORING'], n_recalls)
+    campaign_nums = [f"{str(y)[-2:]}T{np.random.randint(100, 999):03d}" for y in dates.year]
+    return pd.DataFrame({'Report_Received_Date': dates, 'Year': dates.year, 'Manufacturer': brands, 
+                         'Component': components, 'Campaign_Number': campaign_nums, 
+                         'Subject': "Tire Defect Detected", 'Summary': "NHTSA 서버 응답 오류로 생성된 임시 데이터입니다."})
 
 df_comp = load_nhtsa_complaints()
 df_recall = load_real_nhtsa_recalls()
@@ -267,11 +289,10 @@ with col_m2:
     ''', unsafe_allow_html=True)
 
 # ==========================================
-# 8. 패턴 현황, 지역별 현황 (순서 변경 적용) 및 드릴다운 통합 섹션
+# 8. 패턴 현황, 지역별 현황 (3열 배치: State, NEXEN, ALL)
 # ==========================================
 st.markdown('<div class="section-header">PATTERN & REGION EXPLORER</div>', unsafe_allow_html=True)
 
-# 지역별, NEXEN 단독, 타사 포함 전체 순서로 컬럼 배치
 col_p1, col_p2, col_p3 = st.columns(3)
 
 with col_p1:
@@ -335,7 +356,7 @@ with col_d2:
         sym_df = df_filtered[df_filtered['Symptom'] == selected_sym]
         pat_sym = sym_df.groupby(['Brand', 'Model']).size().reset_index(name='Count')
         pat_sym['Pattern'] = pat_sym['Brand'] + " " + pat_sym['Model']
-        top_pat_sym = pat_sym.nlargest(5, 'Count')
+        top_pat_sym = pat_sym.nlargest(5, 'Count') # 공간 확보를 위해 Top 5
         
         fig_sd = px.bar(top_pat_sym, x='Count', y='Pattern', orientation='h', text='Count')
         fig_sd.update_traces(marker_color='#E67E22', width=0.4, textposition='outside')
@@ -387,9 +408,33 @@ if not df_nx_target.empty:
                 for _, r in cases_nx.iloc[3:].iterrows(): render_ai_card(r)
 else: st.info(f"NEXEN 브랜드의 {target_year}년 데이터가 없어 분석을 생략합니다.")
 
+# ==========================================
+# 10. NHTSA 공식 실시간 타이어 리콜 (PL) 현황 요약 
+# ==========================================
+st.markdown('<div class="section-header" style="margin-top: 40px;">NHTSA RECALLS (PL) STATUS</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="section-title">🚨 {target_year}년 타이어 리콜 (PL) 현황 보고서</div>', unsafe_allow_html=True)
+
+df_pl_target = df_recalls_filtered[df_recalls_filtered['Year'] == target_year]
+
+if df_pl_target.empty:
+    st.success(f"{target_year}년 선택 조건에 해당하는 타이어 리콜(PL) 건수가 없습니다.")
+else:
+    col_pl1, col_pl2, col_pl3 = st.columns([1, 2, 2])
+    with col_pl1:
+        st.markdown(f'<div class="pl-card" style="height:100%; display:flex; flex-direction:column; justify-content:center;"><div class="pl-title">{target_year}년 총 타이어 리콜</div><div class="pl-value">{len(df_pl_target)}<span style="font-size:16px; color:#8E44AD;"> 건</span></div><div style="font-size:12px; color:#A6ACAF; margin-top:5px;">NHTSA 실시간 기준</div></div>', unsafe_allow_html=True)
+    with col_pl2:
+        df_pl_chart = df_pl_target.copy()
+        df_pl_chart['Short_Brand'] = df_pl_chart['Manufacturer'].apply(lambda x: str(x).split()[0])
+        fig_pl_b = px.pie(df_pl_chart.groupby('Short_Brand').size().reset_index(name='Count'), names='Short_Brand', values='Count', hole=0.4, title="브랜드별 리콜 비중")
+        st.plotly_chart(apply_chart_style(fig_pl_b, 220), use_container_width=True)
+    with col_pl3:
+        fig_pl_s = px.bar(df_pl_target.groupby('Component').size().reset_index(name='Count'), x='Count', y='Component', orientation='h', title="결함 부품별 비중")
+        fig_pl_s.update_traces(marker_color='#8E44AD', width=0.4)
+        fig_pl_s.update_layout(yaxis={'categoryorder': 'total ascending'})
+        st.plotly_chart(apply_chart_style(fig_pl_s, 220), use_container_width=True)
 
 # ==========================================
-# 10. 전체 조회기간 사고/피해 동반 (Complaints) 상세 보고서
+# 11. 전체 조회기간 사고/피해 동반 (Complaints) 상세 보고서
 # ==========================================
 st.markdown('<div class="section-header" style="margin-top: 40px;">ALL-TIME CRASH REPORT LOGS</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">📝 전체 조회기간 사고·피해 동반 (Complaints) 상세 보고서</div>', unsafe_allow_html=True)
@@ -410,7 +455,7 @@ else:
                 for _, r in all_crash_df.iloc[3:].iterrows(): render_complaint_crash(r)
 
 # ==========================================
-# 11. 넥센 & 경쟁사 비교 분석 섹션
+# 12. 넥센 & 경쟁사 비교 분석 섹션
 # ==========================================
 st.markdown('<div class="section-header" style="margin-top: 40px;">COMPETITOR BENCHMARK</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">⚖️ NEXEN vs 경쟁사 비교 분석 보고서</div>', unsafe_allow_html=True)
@@ -423,14 +468,7 @@ if not is_multi_brand:
 else:
     st.markdown("#### 1. 선택 브랜드별 접수 현황 요약")
     b_sum = df_filtered.groupby('Brand').agg(총컴플레인=('Brand', 'count'), 최다증상=('Symptom', lambda x: x.value_counts().idxmax())).reset_index()
-    recall_cnts = []
-    for b in b_sum['Brand']:
-        if not df_recalls_filtered.empty:
-            cnt = len(df_recalls_filtered[df_recalls_filtered['Manufacturer'].str.upper().str.contains(b.upper(), na=False)])
-        else:
-            cnt = 0
-        recall_cnts.append(cnt)
-        
+    recall_cnts = [len(df_recalls_filtered[df_recalls_filtered['Manufacturer'].str.upper().str.contains(b.upper(), na=False)]) for b in b_sum['Brand']]
     b_sum.insert(2, '타이어 리콜(PL)', recall_cnts)
     b_sum = b_sum.sort_values('총컴플레인', ascending=False).reset_index(drop=True)
     b_sum.index = np.arange(1, len(b_sum) + 1); b_sum.index.name = 'No.'
