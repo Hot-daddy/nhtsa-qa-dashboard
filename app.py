@@ -105,67 +105,49 @@ def load_nhtsa_complaints():
 
 @st.cache_data(ttl=3600)
 def load_real_nhtsa_recalls():
-    """서버 통신 에러를 방지하기 위해 User-Agent를 추가하고 JSON 형식으로 안전하게 로드합니다."""
-    url = "https://datahub.transportation.gov/resource/mu99-t4jn.json"
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-        "Accept": "application/json"
-    }
-    params = {"$limit": 50000}
-    
+    url = "https://data.transportation.gov/resource/mu99-t4jn.csv?$limit=50000"
     try:
-        res = requests.get(url, headers=headers, params=params, timeout=20)
-        
-        if res.status_code == 200:
-            data = res.json()
-            if not data:
-                return pd.DataFrame()
-            
-            df = pd.DataFrame(data)
-            df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
-            
-            # 파이썬(Pandas) 메모리에서 안전하게 TIRE 데이터만 필터링
-            if 'recall_type' in df.columns:
-                df = df[df['recall_type'].astype(str).str.upper().str.contains('TIRE', na=False)]
-            elif 'component' in df.columns:
-                df = df[df['component'].astype(str).str.upper().str.contains('TIRE', na=False)]
-                
-            # 유연한 날짜 컬럼 탐색 및 예외 처리
-            date_col = next((c for c in ['report_received_date', 'received_date', 'report_date', 'date'] if c in df.columns), None)
-            
-            if date_col:
-                df['Report_Received_Date'] = pd.to_datetime(df[date_col], errors='coerce')
-                df['Year'] = df['Report_Received_Date'].dt.year
-            else:
-                df['Report_Received_Date'] = pd.NaT
-                df['Year'] = None
-                
-            # 컬럼 규격 통일화
-            col_mapping = {}
-            for c in df.columns:
-                if 'manufacturer' in c: col_mapping[c] = 'Manufacturer'
-                elif 'component' in c: col_mapping[c] = 'Component'
-                elif 'campaign' in c or 'nhtsa_id' in c: col_mapping[c] = 'Campaign_Number'
-                elif 'subject' in c: col_mapping[c] = 'Subject'
-                elif 'summary' in c: col_mapping[c] = 'Summary'
-                
-            df.rename(columns=col_mapping, inplace=True)
-            
-            # 대시보드 구동에 필요한 필수 컬럼 보장
-            for req in ['Manufacturer', 'Component', 'Campaign_Number', 'Subject', 'Summary']:
-                if req not in df.columns:
-                    df[req] = "N/A"
-                    
-            df['Summary'] = df['Summary'].fillna("상세 내용 없음")
-            df['Subject'] = df['Subject'].fillna("제목 없음")
-            return df
-        else:
-            st.error(f"API 서버로부터 정상적인 응답을 받지 못했습니다. (Status: {res.status_code})")
+        df = pd.read_csv(url)
+        if df.empty:
             return pd.DataFrame()
             
+        df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
+        
+        if 'recall_type' in df.columns:
+            df = df[df['recall_type'].astype(str).str.upper().str.contains('TIRE', na=False)]
+        elif 'component' in df.columns:
+            df = df[df['component'].astype(str).str.upper().str.contains('TIRE', na=False)]
+            
+        date_col = next((c for c in ['report_received_date', 'received_date', 'report_date', 'date'] if c in df.columns), None)
+        
+        if date_col:
+            df['Report_Received_Date'] = pd.to_datetime(df[date_col], errors='coerce')
+            df['Year'] = df['Report_Received_Date'].dt.year
+        else:
+            df['Report_Received_Date'] = pd.NaT
+            df['Year'] = None
+            
+        col_mapping = {}
+        for c in df.columns:
+            if 'manufacturer' in c: col_mapping[c] = 'Manufacturer'
+            elif 'component' in c: col_mapping[c] = 'Component'
+            elif 'campaign' in c or 'nhtsa_id' in c: col_mapping[c] = 'Campaign_Number'
+            elif 'subject' in c: col_mapping[c] = 'Subject'
+            elif 'summary' in c: col_mapping[c] = 'Summary'
+            
+        df.rename(columns=col_mapping, inplace=True)
+        
+        for req in ['Manufacturer', 'Component', 'Campaign_Number', 'Subject', 'Summary']:
+            if req not in df.columns:
+                df[req] = "N/A"
+                
+        df['Summary'] = df['Summary'].fillna("상세 내용 없음")
+        df['Subject'] = df['Subject'].fillna("제목 없음")
+        
+        return df
+        
     except Exception as e:
-        st.error(f"방화벽이나 네트워크 연결 문제로 데이터를 불러올 수 없습니다. ({str(e)[:50]}...)")
+        st.error(f"NHTSA 서버 연결에 실패했습니다. (Error: {e})")
         return pd.DataFrame()
 
 df_comp = load_nhtsa_complaints()
@@ -215,7 +197,12 @@ with st.sidebar:
 # ==========================================
 # 5. 데이터 동적 필터링 적용
 # ==========================================
-mask_comp = (df_comp['Date'].dt.date >= st.session_state.filter_start_date) & (df_comp['Date'].dt.date <= st.session_state.filter_end_date)
+# 에러 방지: 사용자 입력 날짜를 pandas Timestamp로 명시적 변환
+filter_start_ts = pd.to_datetime(st.session_state.filter_start_date)
+filter_end_ts = pd.to_datetime(st.session_state.filter_end_date)
+
+# 컴플레인 필터링
+mask_comp = (df_comp['Date'] >= filter_start_ts) & (df_comp['Date'] <= filter_end_ts)
 if st.session_state.filter_brands: mask_comp &= (df_comp['Brand'].isin(st.session_state.filter_brands))
 if selected_models: mask_comp &= (df_comp['Model'].isin(selected_models))
 if selected_sizes: mask_comp &= (df_comp['Size'].isin(selected_sizes))
@@ -227,9 +214,10 @@ if crash_option == "사고 동반건만 보기": mask_comp &= (df_comp['Crash'] 
 
 df_filtered = df_comp[mask_comp]
 
+# 리콜 필터링 (NaT 에러 방지 적용)
 df_recalls_filtered = pd.DataFrame()
 if not df_recall.empty and 'Report_Received_Date' in df_recall.columns:
-    mask_recall = (df_recall['Report_Received_Date'].dt.date >= st.session_state.filter_start_date) & (df_recall['Report_Received_Date'].dt.date <= st.session_state.filter_end_date)
+    mask_recall = (df_recall['Report_Received_Date'] >= filter_start_ts) & (df_recall['Report_Received_Date'] <= filter_end_ts)
     if st.session_state.filter_brands and "전체" not in st.session_state.filter_brands:
         brand_conds = [df_recall['Manufacturer'].astype(str).str.upper().str.contains(b.upper(), na=False) for b in st.session_state.filter_brands]
         mask_recall &= np.logical_or.reduce(brand_conds)
