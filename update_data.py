@@ -2,28 +2,25 @@ import pandas as pd
 import requests
 import io
 import gspread
-from gspread_dataframe import set_with_dataframe
 from oauth2client.service_account import ServiceAccountCredentials
 import json
 import os
 
-# 1. 구글 시트 인증 및 연결
+# 1. 인증
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_json = json.loads(os.environ.get("GCP_CREDENTIALS"))
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, scope)
 client = gspread.authorize(creds)
 sheet = client.open_by_key("1BMlASAFSqNOwyU9AfysERrao39i0kvl94z1JLe-7Zxk").sheet1
 
-# 2. NHTSA 데이터 다운로드 (최신 5000건, 에러 유발 파라미터 제거)
+# 2. 데이터 다운로드
 url = "https://data.transportation.gov/resource/mu99-t4jn.csv"
 params = {"$order": "report_received_date DESC", "$limit": 5000}
 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-
-print("NHTSA 데이터 다운로드 중...")
 res = requests.get(url, headers=headers, params=params)
 df = pd.read_csv(io.StringIO(res.text))
 
-# 3. 데이터 정제 및 2026년 타이어 필터링
+# 3. 2026년 타이어 데이터 필터링
 df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
 date_col = next((c for c in ['report_received_date', 'received_date', 'date'] if c in df.columns), None)
 
@@ -32,7 +29,6 @@ if date_col:
     df['Year'] = df['Report_Received_Date'].dt.year
     df = df[df['Year'] == 2026]
 
-# 타이어(Tire) 리콜 데이터만 추출
 if 'record_type' in df.columns:
     df = df[df['record_type'].astype(str).str.upper() == 'T']
 elif 'component' in df.columns:
@@ -44,14 +40,19 @@ df.rename(columns={k: v for k, v in col_mapping.items() if k in df.columns}, inp
 final_columns = [c for c in ['Year', 'Report_Received_Date', 'Manufacturer', 'Component', 'Campaign_Number', 'Subject', 'Summary'] if c in df.columns]
 df = df[final_columns]
 
-# 4. 구글 시트 업데이트
-print("구글 시트에 데이터를 기록합니다...")
+# 날짜 데이터를 엑셀 텍스트 호환을 위해 문자열로 변환
+df['Report_Received_Date'] = df['Report_Received_Date'].astype(str)
+
+# 4. 강제 기록 (가장 확실한 방식)
 sheet.clear()
 
-if not df.empty:
-    set_with_dataframe(sheet, df)
-    print(f"업데이트 성공! {len(df)}건의 타이어 리콜 데이터가 기록되었습니다.")
-else:
-    empty_df = pd.DataFrame(columns=final_columns)
-    set_with_dataframe(sheet, empty_df)
-    print("조건에 맞는 2026년 리콜 데이터가 없습니다. 제목 컬럼만 기록했습니다.")
+# 제목(컬럼명)과 데이터를 하나의 덩어리로 결합
+data_to_write = [df.columns.tolist()] + df.fillna("").values.tolist()
+
+# 라이브러리 버전 충돌을 막기 위한 이중 안전장치
+try:
+    sheet.update(data_to_write)
+except Exception:
+    sheet.update('A1', data_to_write)
+    
+print("구글 시트에 강제 업데이트가 완료되었습니다!")
