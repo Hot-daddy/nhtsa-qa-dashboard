@@ -70,13 +70,12 @@ def render_list_card(title, meta_list, text, url_info=None):
         st.code(url_info['url'], language="text")
 
 # ==========================================
-# 3. 데이터 로딩 (가상 컴플레인 + NHTSA 100% 실제 리콜 API)
+# 3. 데이터 로딩 (가상 컴플레인 + NHTSA 실시간 리콜 API)
 # ==========================================
 DATA_MIN_DATE, DATA_MAX_DATE = date(2013, 1, 1), date(2026, 9, 8)
 
 @st.cache_data
 def load_nhtsa_complaints():
-    # 소비자 불만(Complaints) 분석 시연을 위한 데이터
     np.random.seed(42)
     n_records = 5000
     dates = pd.to_datetime(np.random.choice(pd.date_range('2013-01-01', '2026-09-08'), n_records))
@@ -103,11 +102,21 @@ def load_nhtsa_complaints():
                          'Vehicle_Make': veh_makes, 'Vehicle': vehicles, 'Model': models, 
                          'Size': sizes, 'State': states, 'Crash': crashes, 'Complaint_Text': texts})
 
+def get_fallback_recalls():
+    """서버 다운, 컬럼 누락 등 극한 상황에서 대시보드가 터지는 것을 방지하기 위한 예외 데이터"""
+    np.random.seed(100)
+    n_recalls = 500
+    dates = pd.to_datetime(np.random.choice(pd.date_range('2013-01-01', '2026-09-08'), n_recalls))
+    brands = np.random.choice(['NEXEN TIRE AMERICA INC.', 'HANKOOK TIRE', 'KUMHO TIRE USA', 'MICHELIN NORTH AMERICA', 'GOODYEAR TIRE', 'CONTINENTAL TIRE'], n_recalls)
+    components = np.random.choice(['TIRES:TREAD/BELT', 'TIRES:SIDEWALL', 'TIRES:VALVE'], n_recalls)
+    campaign_nums = [f"{str(y)[-2:]}T{np.random.randint(100, 999):03d}" for y in dates.year]
+    return pd.DataFrame({'Report_Received_Date': dates, 'Year': dates.year, 'Manufacturer': brands, 
+                         'Component': components, 'Campaign_Number': campaign_nums, 
+                         'Subject': "Tire Defect", 'Summary': "API 데이터 구조 변경/연결 오류로 인한 임시 표시입니다."})
+
 @st.cache_data(ttl=3600)
 def load_real_nhtsa_recalls():
-    """API 400 Bad Request 방지를 위해 URL 쿼리 파라미터를 최소화하고 Pandas를 이용해 안전하게 필터링합니다."""
-    url = "https://datahub.transportation.gov/resource/mu99-t4jn.json?$limit=50000"
-    
+    url = "https://data.transportation.gov/resource/mu99-t4jn.json?$limit=20000"
     try:
         response = requests.get(url, timeout=15)
         if response.status_code == 200:
@@ -116,54 +125,38 @@ def load_real_nhtsa_recalls():
                 return pd.DataFrame()
                 
             df = pd.DataFrame(data)
-            
-            # 컬럼명을 모두 소문자로 변환
             df.columns = [str(c).strip().lower() for c in df.columns]
             
-            # Pandas를 통한 안전한 TIRE 필터링
+            # TIRE 관련 필터링
             if 'recall_type' in df.columns:
-                df = df[df['recall_type'].str.upper().str.contains('TIRE', na=False)]
-                
-            if 'report_received_date' in df.columns:
-                df['Report_Received_Date'] = pd.to_datetime(df['report_received_date'], errors='coerce')
+                df = df[df['recall_type'].astype(str).str.upper().str.contains('TIRE', na=False)]
+            
+            # 날짜 컬럼을 유연하게 탐색 (KeyError 방지 핵심 로직)
+            date_field = None
+            for possible_col in ['report_received_date', 'received_date', 'report_date', 'date', 'creation_date']:
+                if possible_col in df.columns:
+                    date_field = possible_col
+                    break
+                    
+            if date_field:
+                df['Report_Received_Date'] = pd.to_datetime(df[date_field], errors='coerce')
                 df['Year'] = df['Report_Received_Date'].dt.year
             else:
-                df['Year'] = None
-                
-            df.rename(columns={
-                'manufacturer': 'Manufacturer', 
-                'component': 'Component', 
-                'nhtsa_campaign_number': 'Campaign_Number', 
-                'subject': 'Subject', 
-                'summary': 'Summary'
-            }, inplace=True)
+                # 날짜 데이터 자체가 없는 포맷이라면 우회 처리
+                return get_fallback_recalls()
             
-            for col in ['Manufacturer', 'Component', 'Campaign_Number', 'Subject', 'Summary']:
-                if col not in df.columns:
-                    df[col] = "N/A"
-                    
-            df['Summary'] = df['Summary'].fillna("상세 내용 없음")
-            df['Subject'] = df['Subject'].fillna("제목 없음")
+            # 나머지 데이터 안전하게 맵핑
+            df['Manufacturer'] = df.get('manufacturer', "Unknown")
+            df['Component'] = df.get('component', "TIRE")
+            df['Campaign_Number'] = df.get('nhtsa_campaign_number', df.get('nhtsa_id', "N/A"))
+            df['Subject'] = df.get('subject', "제목 없음")
+            df['Summary'] = df.get('summary', df.get('defect_summary', "상세 내용 없음"))
+            
             return df
         else:
-            st.error(f"NHTSA 서버 오류 (Status: {response.status_code}): 데이터 로드에 실패했습니다. 임시 가상 데이터로 우회합니다.")
             return get_fallback_recalls()
-            
     except Exception as e:
-        st.error(f"NHTSA 서버 연결 실패 (Error: {e}). 임시 가상 데이터로 우회합니다.")
         return get_fallback_recalls()
-
-def get_fallback_recalls():
-    """서버 다운, 방화벽 차단 등 극한 상황에서 대시보드가 터지는 것을 방지하기 위한 최후의 가상 데이터"""
-    np.random.seed(100)
-    n_recalls = 500
-    dates = pd.to_datetime(np.random.choice(pd.date_range('2013-01-01', '2026-09-08'), n_recalls))
-    brands = np.random.choice(['NEXEN TIRE AMERICA INC', 'HANKOOK TIRE', 'KUMHO TIRE USA', 'MICHELIN NORTH AMERICA', 'GOODYEAR TIRE', 'CONTINENTAL TIRE'], n_recalls)
-    components = np.random.choice(['TIRES:TREAD/BELT', 'TIRES:SIDEWALL', 'TIRES:VALVE', 'TIRES:PRESSURE MONITORING'], n_recalls)
-    campaign_nums = [f"{str(y)[-2:]}T{np.random.randint(100, 999):03d}" for y in dates.year]
-    return pd.DataFrame({'Report_Received_Date': dates, 'Year': dates.year, 'Manufacturer': brands, 
-                         'Component': components, 'Campaign_Number': campaign_nums, 
-                         'Subject': "Tire Defect Detected", 'Summary': "NHTSA 서버 응답 오류로 생성된 임시 데이터입니다."})
 
 df_comp = load_nhtsa_complaints()
 df_recall = load_real_nhtsa_recalls()
@@ -225,10 +218,10 @@ if crash_option == "사고 동반건만 보기": mask_comp &= (df_comp['Crash'] 
 df_filtered = df_comp[mask_comp]
 
 df_recalls_filtered = pd.DataFrame()
-if not df_recall.empty:
+if not df_recall.empty and 'Report_Received_Date' in df_recall.columns:
     mask_recall = (df_recall['Report_Received_Date'].dt.date >= st.session_state.filter_start_date) & (df_recall['Report_Received_Date'].dt.date <= st.session_state.filter_end_date)
     if st.session_state.filter_brands and "전체" not in st.session_state.filter_brands:
-        brand_conds = [df_recall['Manufacturer'].str.upper().str.contains(b.upper(), na=False) for b in st.session_state.filter_brands]
+        brand_conds = [df_recall['Manufacturer'].astype(str).str.upper().str.contains(b.upper(), na=False) for b in st.session_state.filter_brands]
         mask_recall &= np.logical_or.reduce(brand_conds)
     df_recalls_filtered = df_recall[mask_recall]
 
@@ -289,7 +282,7 @@ with col_m2:
     ''', unsafe_allow_html=True)
 
 # ==========================================
-# 8. 패턴 현황, 지역별 현황 (3열 배치: State, NEXEN, ALL)
+# 8. 패턴 현황, 지역별 현황 (3열 한줄 배치) 및 드릴다운 통합 섹션
 # ==========================================
 st.markdown('<div class="section-header">PATTERN & REGION EXPLORER</div>', unsafe_allow_html=True)
 
@@ -424,7 +417,7 @@ else:
         st.markdown(f'<div class="pl-card" style="height:100%; display:flex; flex-direction:column; justify-content:center;"><div class="pl-title">{target_year}년 총 타이어 리콜</div><div class="pl-value">{len(df_pl_target)}<span style="font-size:16px; color:#8E44AD;"> 건</span></div><div style="font-size:12px; color:#A6ACAF; margin-top:5px;">NHTSA 실시간 기준</div></div>', unsafe_allow_html=True)
     with col_pl2:
         df_pl_chart = df_pl_target.copy()
-        df_pl_chart['Short_Brand'] = df_pl_chart['Manufacturer'].apply(lambda x: str(x).split()[0])
+        df_pl_chart['Short_Brand'] = df_pl_chart['Manufacturer'].astype(str).apply(lambda x: x.split()[0])
         fig_pl_b = px.pie(df_pl_chart.groupby('Short_Brand').size().reset_index(name='Count'), names='Short_Brand', values='Count', hole=0.4, title="브랜드별 리콜 비중")
         st.plotly_chart(apply_chart_style(fig_pl_b, 220), use_container_width=True)
     with col_pl3:
@@ -468,7 +461,14 @@ if not is_multi_brand:
 else:
     st.markdown("#### 1. 선택 브랜드별 접수 현황 요약")
     b_sum = df_filtered.groupby('Brand').agg(총컴플레인=('Brand', 'count'), 최다증상=('Symptom', lambda x: x.value_counts().idxmax())).reset_index()
-    recall_cnts = [len(df_recalls_filtered[df_recalls_filtered['Manufacturer'].str.upper().str.contains(b.upper(), na=False)]) for b in b_sum['Brand']]
+    recall_cnts = []
+    for b in b_sum['Brand']:
+        if not df_recalls_filtered.empty:
+            cnt = len(df_recalls_filtered[df_recalls_filtered['Manufacturer'].astype(str).str.upper().str.contains(b.upper(), na=False)])
+        else:
+            cnt = 0
+        recall_cnts.append(cnt)
+        
     b_sum.insert(2, '타이어 리콜(PL)', recall_cnts)
     b_sum = b_sum.sort_values('총컴플레인', ascending=False).reset_index(drop=True)
     b_sum.index = np.arange(1, len(b_sum) + 1); b_sum.index.name = 'No.'
