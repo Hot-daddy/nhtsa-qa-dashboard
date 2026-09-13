@@ -43,6 +43,7 @@ st.markdown("""
     .crash-title { font-weight: 800; color: #4A235A; font-size: 14px; margin-bottom: 8px; }
     .crash-meta { font-size: 11px; color: #5B2C6F; margin-right: 8px; background-color: #F4ECF7; padding: 3px 6px; border-radius: 4px; font-weight: 600; display: inline-block; margin-bottom: 4px;}
     .crash-text { font-size: 13px; color: #2C3E50; line-height: 1.5; margin-top: 8px; }
+    .complaint-card { background-color: #FDEDEC; padding: 18px; margin-bottom: 12px; border-radius: 4px; border: 1px solid #FADBD8; border-left: 4px solid #E74C3C; }
     .disabled-card { background-color: #EBEDEF; border: 1px dashed #BDC3C7; padding: 30px; text-align: center; border-radius: 8px; color: #7F8C8D; margin-top: 15px; }
     div[data-testid="stButton"] button { padding: 4px 10px; }
     </style>
@@ -257,6 +258,16 @@ st.markdown('<div class="section-header">PATTERN & REGION EXPLORER</div>', unsaf
 col_p1, col_p2, col_p3 = st.columns(3)
 
 with col_p1:
+    st.markdown('<div style="font-weight:bold; font-size:16px; margin-bottom:10px;">지역별 발생 현황 (State)</div>', unsafe_allow_html=True)
+    top_states = df_filtered['State'].value_counts().head(10).index
+    state_agg = df_filtered[df_filtered['State'].isin(top_states)].groupby(['State', 'Brand']).size().reset_index(name='Count')
+    state_agg = state_agg.merge(state_agg.groupby('State')['Count'].sum().reset_index(name='Total'), on='State')
+    fig_state = px.bar(state_agg, x='Count', y='State', color=color_opt, orientation='h', text='Count')
+    if not is_multi_brand: fig_state.update_traces(marker_color='#5D6D7E')
+    fig_state.update_layout(yaxis={'categoryorder': 'total ascending'})
+    st.plotly_chart(apply_chart_style(fig_state, height=320), use_container_width=True)
+
+with col_p2:
     st.markdown('<div style="font-weight:bold; font-size:16px; margin-bottom:10px;">[NEXEN 단독] 상위 10개 패턴</div>', unsafe_allow_html=True)
     df_nx_pat = df_filtered[df_filtered['Brand'] == 'NEXEN']
     if not df_nx_pat.empty:
@@ -268,9 +279,8 @@ with col_p1:
         st.plotly_chart(apply_chart_style(fig_nx, height=320), use_container_width=True)
     else: st.info("조건에 해당하는 NEXEN 데이터가 없습니다.")
 
-with col_p2:
+with col_p3:
     st.markdown('<div style="font-weight:bold; font-size:16px; margin-bottom:10px;">[타사 포함 전체] 상위 10개 패턴</div>', unsafe_allow_html=True)
-    
     other_brands_selected = any(b != 'NEXEN' for b in st.session_state.filter_brands)
     if not other_brands_selected:
         st.markdown('''
@@ -286,16 +296,6 @@ with col_p2:
         if not is_multi_brand: fig_all.update_traces(marker_color='#5D6D7E')
         fig_all.update_layout(yaxis={'categoryorder': 'total ascending'})
         st.plotly_chart(apply_chart_style(fig_all, height=320), use_container_width=True)
-
-with col_p3:
-    st.markdown('<div style="font-weight:bold; font-size:16px; margin-bottom:10px;">지역별 발생 현황 (State)</div>', unsafe_allow_html=True)
-    top_states = df_filtered['State'].value_counts().head(10).index
-    state_agg = df_filtered[df_filtered['State'].isin(top_states)].groupby(['State', 'Brand']).size().reset_index(name='Count')
-    state_agg = state_agg.merge(state_agg.groupby('State')['Count'].sum().reset_index(name='Total'), on='State')
-    fig_state = px.bar(state_agg, x='Count', y='State', color=color_opt, orientation='h', text='Count')
-    if not is_multi_brand: fig_state.update_traces(marker_color='#5D6D7E')
-    fig_state.update_layout(yaxis={'categoryorder': 'total ascending'})
-    st.plotly_chart(apply_chart_style(fig_state, height=320), use_container_width=True)
 
 # 결함 증상 심층 분석 박스 (드릴다운 연동)
 st.markdown('<div style="padding: 20px; background-color: #FFFFFF; border: 1px solid #EAECEE; border-radius: 8px; margin-top: 15px;">', unsafe_allow_html=True)
