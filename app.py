@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from datetime import date, timedelta
+import requests
 
 # ==========================================
 # 1. 페이지 설정 및 통합 커스텀 CSS
@@ -75,7 +76,7 @@ DATA_MIN_DATE, DATA_MAX_DATE = date(2013, 1, 1), date(2026, 9, 8)
 
 @st.cache_data
 def load_nhtsa_complaints():
-    """소비자 불만(Complaints) 분석 시연을 위한 기본 데이터셋"""
+    # 소비자 불만(Complaints) 분석 시연을 위한 기본 데이터
     np.random.seed(42)
     n_records = 5000
     dates = pd.to_datetime(np.random.choice(pd.date_range('2013-01-01', '2026-09-08'), n_records))
@@ -104,58 +105,67 @@ def load_nhtsa_complaints():
 
 @st.cache_data(ttl=3600)
 def load_real_nhtsa_recalls():
-    """가상 데이터 우회를 완전히 제거하고 실제 NHTSA Datahub CSV 연동"""
-    # JSON 통신 시 발생하는 키(Key) 누락 에러를 방지하기 위해 정규화된 CSV 엔드포인트 호출
-    url = "https://data.transportation.gov/resource/mu99-t4jn.csv?$limit=50000"
+    """서버 통신 에러를 방지하기 위해 User-Agent를 추가하고 JSON 형식으로 안전하게 로드합니다."""
+    url = "https://datahub.transportation.gov/resource/mu99-t4jn.json"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+        "Accept": "application/json"
+    }
+    params = {"$limit": 50000}
     
     try:
-        df = pd.read_csv(url)
-        if df.empty:
+        res = requests.get(url, headers=headers, params=params, timeout=20)
+        
+        if res.status_code == 200:
+            data = res.json()
+            if not data:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(data)
+            df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
+            
+            # 파이썬(Pandas) 메모리에서 안전하게 TIRE 데이터만 필터링
+            if 'recall_type' in df.columns:
+                df = df[df['recall_type'].astype(str).str.upper().str.contains('TIRE', na=False)]
+            elif 'component' in df.columns:
+                df = df[df['component'].astype(str).str.upper().str.contains('TIRE', na=False)]
+                
+            # 유연한 날짜 컬럼 탐색 및 예외 처리
+            date_col = next((c for c in ['report_received_date', 'received_date', 'report_date', 'date'] if c in df.columns), None)
+            
+            if date_col:
+                df['Report_Received_Date'] = pd.to_datetime(df[date_col], errors='coerce')
+                df['Year'] = df['Report_Received_Date'].dt.year
+            else:
+                df['Report_Received_Date'] = pd.NaT
+                df['Year'] = None
+                
+            # 컬럼 규격 통일화
+            col_mapping = {}
+            for c in df.columns:
+                if 'manufacturer' in c: col_mapping[c] = 'Manufacturer'
+                elif 'component' in c: col_mapping[c] = 'Component'
+                elif 'campaign' in c or 'nhtsa_id' in c: col_mapping[c] = 'Campaign_Number'
+                elif 'subject' in c: col_mapping[c] = 'Subject'
+                elif 'summary' in c: col_mapping[c] = 'Summary'
+                
+            df.rename(columns=col_mapping, inplace=True)
+            
+            # 대시보드 구동에 필요한 필수 컬럼 보장
+            for req in ['Manufacturer', 'Component', 'Campaign_Number', 'Subject', 'Summary']:
+                if req not in df.columns:
+                    df[req] = "N/A"
+                    
+            df['Summary'] = df['Summary'].fillna("상세 내용 없음")
+            df['Subject'] = df['Subject'].fillna("제목 없음")
+            return df
+        else:
+            st.error(f"API 서버로부터 정상적인 응답을 받지 못했습니다. (Status: {res.status_code})")
             return pd.DataFrame()
             
-        # 컬럼명을 모두 소문자로, 공백을 언더바로 변환하여 처리 일관성 확보
-        df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
-        
-        # Recall Type 필터링 ('TIRE' 관련)
-        if 'recall_type' in df.columns:
-            df = df[df['recall_type'].astype(str).str.upper().str.contains('TIRE', na=False)]
-        elif 'component' in df.columns: # 혹시 모를 대체 탐색
-            df = df[df['component'].astype(str).str.upper().str.contains('TIRE', na=False)]
-            
-        # 날짜 컬럼 유연한 탐색
-        date_col = next((c for c in ['report_received_date', 'received_date', 'report_date', 'date'] if c in df.columns), None)
-        
-        if date_col:
-            df['Report_Received_Date'] = pd.to_datetime(df[date_col], errors='coerce')
-            df['Year'] = df['Report_Received_Date'].dt.year
-        else:
-            df['Report_Received_Date'] = pd.NaT
-            df['Year'] = None
-            
-        # 주요 컬럼명을 대시보드 규격에 맞게 변환
-        col_mapping = {}
-        for c in df.columns:
-            if 'manufacturer' in c: col_mapping[c] = 'Manufacturer'
-            elif 'component' in c: col_mapping[c] = 'Component'
-            elif 'campaign' in c or 'nhtsa_id' in c: col_mapping[c] = 'Campaign_Number'
-            elif 'subject' in c: col_mapping[c] = 'Subject'
-            elif 'summary' in c: col_mapping[c] = 'Summary'
-            
-        df.rename(columns=col_mapping, inplace=True)
-        
-        # 필수 컬럼이 없을 경우 빈 값으로 방어 처리
-        for req in ['Manufacturer', 'Component', 'Campaign_Number', 'Subject', 'Summary']:
-            if req not in df.columns:
-                df[req] = "N/A"
-                
-        df['Summary'] = df['Summary'].fillna("상세 내용 없음")
-        df['Subject'] = df['Subject'].fillna("제목 없음")
-        
-        return df
-        
     except Exception as e:
-        # 에러 발생 시 스트림릿 화면 상단에 정확한 에러 코드를 출력하여 대응 가능하도록 표시
-        st.error(f"NHTSA 서버에서 실제 데이터를 로드하는데 실패했습니다. 통신 상태를 확인해주세요. (Error: {e})")
+        st.error(f"방화벽이나 네트워크 연결 문제로 데이터를 불러올 수 없습니다. ({str(e)[:50]}...)")
         return pd.DataFrame()
 
 df_comp = load_nhtsa_complaints()
