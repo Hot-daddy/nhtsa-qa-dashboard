@@ -43,7 +43,6 @@ st.markdown("""
     .crash-title { font-weight: 800; color: #4A235A; font-size: 14px; margin-bottom: 8px; }
     .crash-meta { font-size: 11px; color: #5B2C6F; margin-right: 8px; background-color: #F4ECF7; padding: 3px 6px; border-radius: 4px; font-weight: 600; display: inline-block; margin-bottom: 4px;}
     .crash-text { font-size: 13px; color: #2C3E50; line-height: 1.5; margin-top: 8px; }
-    .complaint-card { background-color: #FDEDEC; padding: 18px; margin-bottom: 12px; border-radius: 4px; border: 1px solid #FADBD8; border-left: 4px solid #E74C3C; }
     .disabled-card { background-color: #EBEDEF; border: 1px dashed #BDC3C7; padding: 30px; text-align: center; border-radius: 8px; color: #7F8C8D; margin-top: 15px; }
     div[data-testid="stButton"] button { padding: 4px 10px; }
     </style>
@@ -71,7 +70,7 @@ def render_list_card(title, meta_list, text, url_info=None):
         st.code(url_info['url'], language="text")
 
 # ==========================================
-# 3. 데이터 로딩 (가상 컴플레인 + NHTSA 실시간 리콜 API)
+# 3. 데이터 로딩
 # ==========================================
 DATA_MIN_DATE, DATA_MAX_DATE = date(2013, 1, 1), date(2026, 9, 8)
 
@@ -251,9 +250,9 @@ with col_m2:
     ''', unsafe_allow_html=True)
 
 # ==========================================
-# 8. 패턴 현황 (NEXEN vs 전체 분리, 내림차순 정렬) 및 지역별/키워드별 현황
+# 8. 패턴 현황 (NEXEN vs 전체)
 # ==========================================
-st.markdown('<div class="section-header">PATTERN & REGION EXPLORER</div><div class="section-title">타이어 모델별 상위 10개 패턴 현황</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">PATTERN EXPLORER</div><div class="section-title">타이어 모델별 상위 10개 패턴 현황</div>', unsafe_allow_html=True)
 
 col_pat1, col_pat2 = st.columns(2)
 with col_pat1:
@@ -277,8 +276,11 @@ with col_pat2:
     fig_all.update_layout(yaxis={'categoryorder': 'total ascending'})
     st.plotly_chart(apply_chart_style(fig_all, height=320), use_container_width=True)
 
+# ==========================================
+# 9. 지역별 현황 & 통합 증상/드릴다운 분석 (좌/우 분할 레이아웃 적용)
+# ==========================================
+col_st1, col_st2 = st.columns([1, 1.2])
 
-col_st1, col_st2 = st.columns(2)
 with col_st1:
     st.markdown('<div class="section-title" style="margin-top:20px;">지역별 발생 현황 (State)</div>', unsafe_allow_html=True)
     top_states = df_filtered['State'].value_counts().head(10).index
@@ -287,44 +289,44 @@ with col_st1:
     fig_state = px.bar(state_agg, x='Count', y='State', color=color_opt, orientation='h', text='Count')
     if not is_multi_brand: fig_state.update_traces(marker_color='#5D6D7E')
     fig_state.update_layout(yaxis={'categoryorder': 'total ascending'})
-    st.plotly_chart(apply_chart_style(fig_state, height=320), use_container_width=True)
+    st.plotly_chart(apply_chart_style(fig_state, height=500), use_container_width=True)
 
 with col_st2:
-    st.markdown('<div class="section-title" style="margin-top:20px;">주요 결함·증상 키워드별 발생 현황</div>', unsafe_allow_html=True)
+    st.markdown('<div style="padding: 20px; background-color: #FFFFFF; border: 1px solid #EAECEE; border-radius: 8px; margin-top: 10px;">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title" style="margin-bottom:10px;">주요 결함·증상 키워드별 발생 현황 및 상세 분석 (Drill-down)</div>', unsafe_allow_html=True)
+    
+    # 상단: 주요 증상 키워드별 발생 현황
     sym_agg = df_filtered.groupby(['Symptom', 'Brand']).size().reset_index(name='Count')
     sym_agg = sym_agg.merge(sym_agg.groupby('Symptom')['Count'].sum().reset_index(name='Total'), on='Symptom')
     fig_sym = px.bar(sym_agg, x='Count', y='Symptom', color=color_opt, orientation='h', text='Count')
     if not is_multi_brand: fig_sym.update_traces(marker_color='#5D6D7E') 
     fig_sym.update_layout(yaxis={'categoryorder': 'total ascending'})
-    st.plotly_chart(apply_chart_style(fig_sym, height=320), use_container_width=True)
-
-# 결함 증상 심층 분석 (Drill-down)
-st.markdown('<div style="padding: 15px; background-color: #FFFFFF; border: 1px solid #EAECEE; border-radius: 8px; margin-top: 10px;">', unsafe_allow_html=True)
-st.markdown('<div class="section-title" style="margin-bottom:10px;">🔎 결함 증상별 상세 패턴 분석 (Drill-down)</div>', unsafe_allow_html=True)
-
-sym_list = df_filtered['Symptom'].value_counts().index.tolist()
-selected_sym = st.selectbox("상세 패턴을 확인할 결함 증상을 선택하세요:", options=sym_list)
-
-if selected_sym:
-    sym_df = df_filtered[df_filtered['Symptom'] == selected_sym]
-    pat_sym = sym_df.groupby(['Brand', 'Model']).size().reset_index(name='Count')
-    pat_sym['Pattern'] = pat_sym['Brand'] + " " + pat_sym['Model']
-    top_pat_sym = pat_sym.sort_values(by='Count', ascending=False).head(10)
+    st.plotly_chart(apply_chart_style(fig_sym, height=220), use_container_width=True)
     
-    col_sd1, col_sd2 = st.columns([1, 1.5])
-    with col_sd1:
+    st.markdown('<hr style="border-top: 1px dashed #EAECEE; margin: 15px 0;">', unsafe_allow_html=True)
+    
+    # 하단: 증상 선택 후 패턴 리스트 연동 (Drill-down)
+    sym_list = df_filtered['Symptom'].value_counts().index.tolist()
+    selected_sym = st.selectbox("🔎 상세 패턴 리스트를 확인할 결함 증상 선택:", options=sym_list)
+    
+    if selected_sym:
+        sym_df = df_filtered[df_filtered['Symptom'] == selected_sym]
+        pat_sym = sym_df.groupby(['Brand', 'Model']).size().reset_index(name='Count')
+        pat_sym['Pattern'] = pat_sym['Brand'] + " " + pat_sym['Model']
+        top_pat_sym = pat_sym.sort_values(by='Count', ascending=False).head(5) # 상위 5개로 압축하여 공간 확보
+        
         fig_sd = px.bar(top_pat_sym, x='Count', y='Pattern', orientation='h', text='Count')
         fig_sd.update_traces(marker_color='#E67E22', width=0.4, textposition='outside')
-        fig_sd.update_layout(yaxis={'categoryorder': 'total ascending'}, margin=dict(l=0, r=20, t=10, b=0))
-        st.plotly_chart(apply_chart_style(fig_sd, height=250), use_container_width=True)
-    with col_sd2:
-        st.markdown(f"**'{selected_sym}' 주요 발생 사례 (최근 5건)**")
-        for _, r in sym_df.sort_values('Date', ascending=False).head(5).iterrows():
-            st.markdown(f"<div style='font-size:13px; margin-bottom:8px; border-bottom:1px solid #eee; padding-bottom:5px;'><b>[{r['Brand']}] {r['Model']}</b> ({r['Date'].strftime('%Y-%m-%d')}, 지역: {r['State']})<br>{r['Complaint_Text']}</div>", unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
+        fig_sd.update_layout(yaxis={'categoryorder': 'total ascending'})
+        st.plotly_chart(apply_chart_style(fig_sd, height=200), use_container_width=True)
+        
+        with st.expander(f"'{selected_sym}' 최근 주요 발생 사례 (5건)"):
+            for _, r in sym_df.sort_values('Date', ascending=False).head(5).iterrows():
+                st.markdown(f"<div style='font-size:12px; margin-bottom:8px; border-bottom:1px solid #eee; padding-bottom:5px;'><b>[{r['Brand']}] {r['Model']}</b> ({r['Date'].strftime('%Y-%m-%d')}, 지역: {r['State']})<br>{r['Complaint_Text']}</div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 9. NEXEN 전용 신호 감지 & AI 요약
+# 10. NEXEN 전용 신호 감지 & AI 요약
 # ==========================================
 st.markdown('<div class="section-header" style="margin-top: 40px;">NEXEN DEEP DIVE</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="section-title">NEXEN: {target_year}년 컴플레인 이상 신호 및 AI 분석</div>', unsafe_allow_html=True)
@@ -363,9 +365,8 @@ if not df_nx_target.empty:
                 for _, r in cases_nx.iloc[3:].iterrows(): render_ai_card(r)
 else: st.info(f"NEXEN 브랜드의 {target_year}년 데이터가 없어 분석을 생략합니다.")
 
-
 # ==========================================
-# 10. 전체 조회기간 사고/피해 동반 (Complaints) 상세 보고서
+# 11. 전체 조회기간 사고/피해 동반 (Complaints) 상세 보고서
 # ==========================================
 st.markdown('<div class="section-header" style="margin-top: 40px;">ALL-TIME CRASH REPORT LOGS</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">📝 전체 조회기간 사고·피해 동반 (Complaints) 상세 보고서</div>', unsafe_allow_html=True)
@@ -386,7 +387,7 @@ else:
                 for _, r in all_crash_df.iloc[3:].iterrows(): render_complaint_crash(r)
 
 # ==========================================
-# 11. 넥센 & 경쟁사 비교 분석 섹션
+# 12. 넥센 & 경쟁사 비교 분석 섹션
 # ==========================================
 st.markdown('<div class="section-header" style="margin-top: 40px;">COMPETITOR BENCHMARK</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">⚖️ NEXEN vs 경쟁사 비교 분석 보고서</div>', unsafe_allow_html=True)
