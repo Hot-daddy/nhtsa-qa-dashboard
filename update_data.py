@@ -1,4 +1,3 @@
-import pandas as pd
 import requests
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -10,47 +9,46 @@ scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(os.environ.get("GCP_CREDENTIALS")), scope)
 sheet = gspread.authorize(creds).open_by_key("1BMlASAFSqNOwyU9AfysERrao39i0kvl94z1JLe-7Zxk").sheet1
 
-# 2. 데이터 다운로드 (★ 핵심: 최근 날짜순으로 5만건을 가져오도록 $order 복구 ★)
+# 2. NHTSA 서버에 직접 '26T'(2026년 타이어) 데이터만 요청 (가장 빠르고 정확한 방식)
 url = "https://data.transportation.gov/resource/mu99-t4jn.json"
 params = {
-    "$order": "report_received_date DESC", 
-    "$limit": 50000
+    "$where": "nhtsa_campaign_number like '26T%'",
+    "$limit": 1000
 }
 res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, params=params)
-df = pd.DataFrame(res.json())
+data = res.json()
 
-# 3. 2026년 타이어(26T) 리콜 정확하게 색출
-if not df.empty and 'nhtsa_campaign_number' in df.columns:
-    df = df[df['nhtsa_campaign_number'].astype(str).str.upper().str.startswith('26T')]
+# 3. 데이터 매핑 (복잡한 Pandas 인덱스 에러 원천 차단)
+target_columns = ['Year', 'Report_Received_Date', 'Manufacturer', 'Component', 'Campaign_Number', 'Subject', 'Summary']
+final_rows = [target_columns] # 첫 줄에 헤더(제목) 추가
 
-# 4. 컬럼명 매핑 및 정제
-final_cols = ['Year', 'Report_Received_Date', 'Manufacturer', 'Component', 'Campaign_Number', 'Subject', 'Summary']
-
-if not df.empty:
-    df['Year'] = "2026"
-    df.rename(columns={
-        'report_received_date': 'Report_Received_Date',
-        'manufacturer': 'Manufacturer',
-        'component': 'Component',
-        'nhtsa_campaign_number': 'Campaign_Number',
-        'subject': 'Subject',
-        'summary': 'Summary'
-    }, inplace=True)
+# Socrata API 리스트를 하나씩 돌면서 빈칸 없이 정확하게 채워넣음
+for row in data:
+    campaign_num = row.get('nhtsa_campaign_number', '')
     
-    for col in final_cols:
-        if col not in df.columns:
-            df[col] = ""
-    df = df[final_cols]
-else:
-    df = pd.DataFrame(columns=final_cols)
+    # 확실하게 26T로 시작하는 데이터만 입력
+    if str(campaign_num).upper().startswith('26T'):
+        # 날짜가 있으면 'YYYY-MM-DD' 형태로 깔끔하게 자르기
+        r_date = row.get('report_received_date', '')[:10] 
+        mfg = row.get('manufacturer', row.get('mfr_name', ''))
+        comp = row.get('component', '')
+        subj = row.get('subject', '')
+        desc = row.get('summary', row.get('recall_description', ''))
+        
+        final_rows.append([
+            "2026",
+            r_date,
+            mfg,
+            comp,
+            campaign_num,
+            subj,
+            desc
+        ])
 
-df = df.fillna("").astype(str)
-
-# 5. 구글 시트 강제 기록
+# 4. 구글 시트 덮어쓰기
 sheet.clear()
-data_to_write = [final_cols] + df.values.tolist()
-
 try:
-    sheet.update(data_to_write)
+    sheet.update(final_rows)
+    print(f"업데이트 성공: 총 {len(final_rows)-1}건의 데이터가 기록되었습니다.")
 except Exception:
-    sheet.update('A1', data_to_write)
+    sheet.update('A1', final_rows)
