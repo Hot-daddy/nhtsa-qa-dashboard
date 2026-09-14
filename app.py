@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 
@@ -27,7 +26,6 @@ GOOGLE_SHEET_CSV_URL = (
     f"{GOOGLE_SHEET_ID}/export?format=csv"
 )
 
-# update_data.py에서 생성하는 컬럼과 동일하게 유지
 EXPECTED_COLUMNS = [
     "Year",
     "Report_Received_Date",
@@ -45,46 +43,21 @@ EXPECTED_COLUMNS = [
 
 @st.cache_data(ttl=3600)
 def load_real_nhtsa_recalls():
-    """
-    Google Sheet 데이터를 CSV 형식으로 읽어온다.
-
-    캐시:
-        1시간
-
-    반환:
-        pandas DataFrame
-    """
 
     try:
-
-        # ----------------------------------------------------
-        # Google Sheet → CSV
-        # ----------------------------------------------------
 
         df = pd.read_csv(
             GOOGLE_SHEET_CSV_URL
         )
 
-        # ----------------------------------------------------
-        # 데이터가 없는 경우
-        # ----------------------------------------------------
-
         if df.empty:
             return pd.DataFrame()
-
-        # ----------------------------------------------------
-        # 컬럼명 공백 제거
-        # ----------------------------------------------------
 
         df.columns = (
             df.columns
             .astype(str)
             .str.strip()
         )
-
-        # ----------------------------------------------------
-        # 필수 컬럼 확인
-        # ----------------------------------------------------
 
         missing_columns = [
             column
@@ -98,10 +71,6 @@ def load_real_nhtsa_recalls():
                 "Google Sheet에 필요한 컬럼이 없습니다: "
                 + ", ".join(missing_columns)
             )
-
-        # ----------------------------------------------------
-        # 문자열 컬럼 정리
-        # ----------------------------------------------------
 
         text_columns = [
             "Manufacturer",
@@ -122,20 +91,12 @@ def load_real_nhtsa_recalls():
                     .str.strip()
                 )
 
-        # ----------------------------------------------------
-        # 날짜 컬럼 처리
-        # ----------------------------------------------------
-
         if "Report_Received_Date" in df.columns:
 
             df["Report_Received_Date"] = pd.to_datetime(
                 df["Report_Received_Date"],
                 errors="coerce",
             )
-
-        # ----------------------------------------------------
-        # Campaign Number 정리
-        # ----------------------------------------------------
 
         if "Campaign_Number" in df.columns:
 
@@ -147,10 +108,6 @@ def load_real_nhtsa_recalls():
                 .str.upper()
             )
 
-        # ----------------------------------------------------
-        # 최신 신고일 순으로 정렬
-        # ----------------------------------------------------
-
         if "Report_Received_Date" in df.columns:
 
             df = df.sort_values(
@@ -158,10 +115,6 @@ def load_real_nhtsa_recalls():
                 ascending=False,
                 na_position="last",
             )
-
-        # ----------------------------------------------------
-        # Index 초기화
-        # ----------------------------------------------------
 
         df = df.reset_index(drop=True)
 
@@ -240,10 +193,6 @@ st.success(
 col1, col2, col3 = st.columns(3)
 
 
-# ------------------------------------------------------------
-# Total Recall Count
-# ------------------------------------------------------------
-
 with col1:
 
     st.metric(
@@ -251,10 +200,6 @@ with col1:
         value=f"{len(df):,} 건",
     )
 
-
-# ------------------------------------------------------------
-# Manufacturer Count
-# ------------------------------------------------------------
 
 with col2:
 
@@ -279,10 +224,6 @@ with col2:
             value="-",
         )
 
-
-# ------------------------------------------------------------
-# Latest Report Date
-# ------------------------------------------------------------
 
 with col3:
 
@@ -319,17 +260,8 @@ st.write(
     "### 📋 상세 리콜 내역"
 )
 
-
-# ------------------------------------------------------------
-# Display용 DataFrame 생성
-# ------------------------------------------------------------
-
 display_df = df.copy()
 
-
-# ------------------------------------------------------------
-# 날짜를 화면에서는 YYYY-MM-DD로 표시
-# ------------------------------------------------------------
 
 if "Report_Received_Date" in display_df.columns:
 
@@ -349,22 +281,3 @@ st.dataframe(
     use_container_width=True,
     hide_index=True,
 )
-```
-
-이 버전에서는 `update_data.py`의 다음 컬럼을 그대로 사용합니다.
-
-```text
-Year
-Report_Received_Date
-Manufacturer
-Component
-Campaign_Number
-Subject
-Summary
-```
-
-따라서 **`app.py`와 `update_data.py` 사이의 컬럼명 불일치는 없습니다.**
-
-또한 NHTSA API 자체는 `app.py`에서 호출하지 않습니다. `app.py`는 Google Sheet만 읽기 때문에, NHTSA API가 일시적으로 400/500을 반환하더라도 대시보드 자체가 영향을 받지 않습니다. API 오류 처리는 `update_data.py`에서 담당하고, Streamlit은 **마지막으로 정상 저장된 Google Sheet 데이터를 계속 보여주는 구조**입니다.
-
-한 가지 주의할 점은 현재 `@st.cache_data(ttl=3600)` 때문에 **Google Sheet가 변경된 직후에도 최대 약 1시간 동안 이전 데이터가 보일 수 있다는 것**입니다. 매주 업데이트되는 대시보드라면 현재 설정은 충분히 합리적입니다.
